@@ -21,8 +21,24 @@ export function normalizePhoneNumber(input: string): string {
     return cleaned;
   }
 
-  // Remove country code prefixes
-  if (cleaned.startsWith("+1")) {
+  // Handle incomplete prefixes - preserve them as-is to avoid incorrect normalization
+  // Don't try to normalize incomplete prefixes like "+187", "+18", "+1", or just "+"
+  if (cleaned === "+" || cleaned === "+1" || cleaned === "+18" || cleaned === "+187") {
+    return cleaned; // Return as-is for incomplete prefixes
+  }
+
+  // If it starts with +1 but is incomplete (less than +1876), return as-is
+  if (cleaned.startsWith("+1") && cleaned.length < 5) {
+    return cleaned;
+  }
+
+  // Remove country code prefixes only if we have a complete pattern
+  if (cleaned.startsWith("+1") && cleaned.length >= 5) {
+    // If it's +1876 or longer, keep it
+    if (cleaned.startsWith("+1876")) {
+      return cleaned;
+    }
+    // If it's +1 but not +1876, remove the +1 prefix for further processing
     cleaned = cleaned.substring(2);
   } else if (cleaned.startsWith("+")) {
     cleaned = cleaned.substring(1);
