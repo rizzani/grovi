@@ -13,16 +13,40 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
 import { useRouter } from "expo-router";
+import { normalizePhoneNumber, validatePhoneNumber } from "../lib/phone-validation";
 
 export default function SignUp() {
   const router = useRouter();
   const [phone, setPhone] = useState("");
+  const [phoneError, setPhoneError] = useState<string | null>(null);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [focusedInput, setFocusedInput] = useState<"phone" | "email" | "password" | "confirmPassword" | null>(null);
+
+  const handlePhoneChange = (text: string) => {
+    // Normalize the input as user types
+    const normalized = normalizePhoneNumber(text);
+    setPhone(normalized);
+    
+    // Clear error when user starts typing
+    if (phoneError) {
+      setPhoneError(null);
+    }
+  };
+
+  const handlePhoneBlur = () => {
+    // Validate on blur
+    const validation = validatePhoneNumber(phone);
+    if (!validation.isValid) {
+      setPhoneError(validation.error || "Invalid phone number");
+    } else {
+      setPhoneError(null);
+    }
+    setFocusedInput(null);
+  };
 
   return (
     <SafeAreaView style={styles.container}>
@@ -49,19 +73,28 @@ export default function SignUp() {
 
             {/* Input Fields */}
             <View style={styles.inputContainer}>
-              <TextInput
-                style={[
-                  styles.input,
-                  focusedInput === "phone" && styles.inputFocused,
-                ]}
-                placeholder="Phone"
-                placeholderTextColor="#9CA3AF"
-                value={phone}
-                onChangeText={setPhone}
-                keyboardType="phone-pad"
-                onFocus={() => setFocusedInput("phone")}
-                onBlur={() => setFocusedInput(null)}
-              />
+              <View>
+                <TextInput
+                  style={[
+                    styles.input,
+                    focusedInput === "phone" && styles.inputFocused,
+                    phoneError && styles.inputError,
+                  ]}
+                  placeholder="Phone (876-XXX-XXXX)"
+                  placeholderTextColor="#9CA3AF"
+                  value={phone}
+                  onChangeText={handlePhoneChange}
+                  keyboardType="phone-pad"
+                  onFocus={() => {
+                    setFocusedInput("phone");
+                    setPhoneError(null);
+                  }}
+                  onBlur={handlePhoneBlur}
+                />
+                {phoneError && (
+                  <Text style={styles.errorText}>{phoneError}</Text>
+                )}
+              </View>
 
               <TextInput
                 style={[
@@ -134,7 +167,23 @@ export default function SignUp() {
             </View>
 
             {/* Continue Button */}
-            <TouchableOpacity style={styles.continueButton} activeOpacity={0.8}>
+            <TouchableOpacity
+              style={styles.continueButton}
+              activeOpacity={0.8}
+              onPress={() => {
+                // Validate phone before submission
+                const validation = validatePhoneNumber(phone);
+                if (!validation.isValid) {
+                  setPhoneError(validation.error || "Invalid phone number");
+                  return;
+                }
+                
+                // Phone is normalized and validated, ready for API submission
+                // The phone will be in E.164 format: +1876XXXXXXX
+                console.log("Normalized phone:", phone);
+                // TODO: Submit form data to API
+              }}
+            >
               <Text style={styles.continueButtonText}>Continue</Text>
             </TouchableOpacity>
 
@@ -215,9 +264,19 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
     fontSize: 16,
     color: "#111827",
-    marginBottom: 16,
+    marginBottom: 4,
     borderWidth: 1,
     borderColor: "#E5E7EB",
+  },
+  inputError: {
+    borderColor: "#EF4444",
+    marginBottom: 4,
+  },
+  errorText: {
+    color: "#EF4444",
+    fontSize: 12,
+    marginBottom: 12,
+    marginLeft: 4,
   },
   passwordContainer: {
     position: "relative",
