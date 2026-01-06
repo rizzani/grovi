@@ -11,9 +11,11 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
+import { useRouter } from "expo-router";
 import Svg, { Defs, LinearGradient, Stop, Rect } from "react-native-svg";
 
 export default function SignIn() {
+  const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -152,7 +154,7 @@ export default function SignIn() {
           {/* Footer */}
           <View style={styles.footer}>
             <Text style={styles.footerText}>New here? </Text>
-            <TouchableOpacity>
+            <TouchableOpacity onPress={() => router.push("/sign-up")}>
               <Text style={styles.createAccountText}>Create an account</Text>
             </TouchableOpacity>
           </View>
