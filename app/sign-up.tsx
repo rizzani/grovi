@@ -14,6 +14,13 @@ import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
 import { useRouter } from "expo-router";
 import { normalizePhoneNumber, validatePhoneNumber } from "../lib/phone-validation";
+import {
+  validatePassword,
+  validateConfirmPassword,
+  getStrengthColor,
+  getStrengthText,
+  type PasswordStrength,
+} from "../lib/password-validation";
 
 export default function SignUp() {
   const router = useRouter();
@@ -25,6 +32,14 @@ export default function SignUp() {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [focusedInput, setFocusedInput] = useState<"phone" | "email" | "password" | "confirmPassword" | null>(null);
+  const [passwordError, setPasswordError] = useState<string | null>(null);
+  const [confirmPasswordError, setConfirmPasswordError] = useState<string | null>(null);
+  const [passwordValidation, setPasswordValidation] = useState<ReturnType<typeof validatePassword>>({
+    isValid: false,
+    errors: [],
+    strength: "weak",
+    hints: [],
+  });
 
   const handlePhoneChange = (text: string) => {
     // Normalize the input as user types
@@ -46,6 +61,80 @@ export default function SignUp() {
       setPhoneError(null);
     }
     setFocusedInput(null);
+  };
+
+  const handlePasswordChange = (text: string) => {
+    setPassword(text);
+    const validation = validatePassword(text);
+    setPasswordValidation(validation);
+    
+    // Clear error when user starts typing
+    if (passwordError) {
+      setPasswordError(null);
+    }
+
+    // Validate confirm password if it's already filled
+    if (confirmPassword) {
+      const confirmValidation = validateConfirmPassword(text, confirmPassword);
+      if (!confirmValidation.isValid) {
+        setConfirmPasswordError(confirmValidation.error || null);
+      } else {
+        setConfirmPasswordError(null);
+      }
+    }
+  };
+
+  const handlePasswordBlur = () => {
+    const validation = validatePassword(password);
+    setPasswordValidation(validation);
+    if (!validation.isValid && validation.errors.length > 0) {
+      setPasswordError(validation.errors[0]);
+    } else {
+      setPasswordError(null);
+    }
+    setFocusedInput(null);
+  };
+
+  const handleConfirmPasswordChange = (text: string) => {
+    setConfirmPassword(text);
+    
+    // Clear error when user starts typing
+    if (confirmPasswordError) {
+      setConfirmPasswordError(null);
+    }
+
+    // Validate match if password is filled
+    if (password) {
+      const validation = validateConfirmPassword(password, text);
+      if (!validation.isValid) {
+        setConfirmPasswordError(validation.error || null);
+      } else {
+        setConfirmPasswordError(null);
+      }
+    }
+  };
+
+  const handleConfirmPasswordBlur = () => {
+    if (password) {
+      const validation = validateConfirmPassword(password, confirmPassword);
+      if (!validation.isValid) {
+        setConfirmPasswordError(validation.error || null);
+      } else {
+        setConfirmPasswordError(null);
+      }
+    } else if (confirmPassword) {
+      setConfirmPasswordError("Please enter password first");
+    }
+    setFocusedInput(null);
+  };
+
+  // Check if form is valid for submission
+  const isFormValid = () => {
+    const phoneValidation = validatePhoneNumber(phone);
+    const passwordValid = passwordValidation.isValid;
+    const confirmValid = validateConfirmPassword(password, confirmPassword).isValid;
+    
+    return phoneValidation.isValid && passwordValid && confirmValid;
   };
 
   return (
@@ -111,80 +200,198 @@ export default function SignUp() {
                 onBlur={() => setFocusedInput(null)}
               />
 
-              <View style={styles.passwordContainer}>
-                <TextInput
-                  style={[
-                    styles.input,
-                    styles.passwordInput,
-                    focusedInput === "password" && styles.inputFocused,
-                  ]}
-                  placeholder="Enter Password"
-                  placeholderTextColor="#9CA3AF"
-                  value={password}
-                  onChangeText={setPassword}
-                  secureTextEntry={!showPassword}
-                  onFocus={() => setFocusedInput("password")}
-                  onBlur={() => setFocusedInput(null)}
-                />
-                <TouchableOpacity
-                  style={styles.eyeIcon}
-                  onPress={() => setShowPassword(!showPassword)}
-                >
-                  <Ionicons
-                    name={showPassword ? "eye-off" : "eye"}
-                    size={20}
-                    color="#9CA3AF"
+              <View>
+                <View style={styles.passwordContainer}>
+                  <TextInput
+                    style={[
+                      styles.input,
+                      styles.passwordInput,
+                      focusedInput === "password" && styles.inputFocused,
+                      passwordError && styles.inputError,
+                    ]}
+                    placeholder="Enter Password"
+                    placeholderTextColor="#9CA3AF"
+                    value={password}
+                    onChangeText={handlePasswordChange}
+                    secureTextEntry={!showPassword}
+                    onFocus={() => {
+                      setFocusedInput("password");
+                      setPasswordError(null);
+                    }}
+                    onBlur={handlePasswordBlur}
                   />
-                </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.eyeIcon}
+                    onPress={() => setShowPassword(!showPassword)}
+                  >
+                    <Ionicons
+                      name={showPassword ? "eye-off" : "eye"}
+                      size={20}
+                      color="#9CA3AF"
+                    />
+                  </TouchableOpacity>
+                </View>
+                
+                {/* Password Strength Indicator */}
+                {focusedInput === "password" && password.length > 0 && (
+                  <View style={styles.strengthContainer}>
+                    <View style={styles.strengthBarContainer}>
+                      <View
+                        style={[
+                          styles.strengthBar,
+                          {
+                            width: `${passwordValidation.strength === "weak" ? 33 : passwordValidation.strength === "medium" ? 66 : 100}%`,
+                            backgroundColor: getStrengthColor(passwordValidation.strength),
+                          },
+                        ]}
+                      />
+                    </View>
+                    <Text
+                      style={[
+                        styles.strengthText,
+                        { color: getStrengthColor(passwordValidation.strength) },
+                      ]}
+                    >
+                      {getStrengthText(passwordValidation.strength)}
+                    </Text>
+                  </View>
+                )}
+
+                {/* Password Validation Hints */}
+                {focusedInput === "password" && password.length > 0 && passwordValidation.hints.length > 0 && (
+                  <View style={styles.hintsContainer}>
+                    {passwordValidation.hints.map((hint, index) => (
+                      <View key={index} style={styles.hintRow}>
+                        <Ionicons name="information-circle-outline" size={16} color="#6B7280" />
+                        <Text style={styles.hintText}>{hint}</Text>
+                      </View>
+                    ))}
+                  </View>
+                )}
+
+                {/* Password Error Messages */}
+                {passwordError && (
+                  <Text style={styles.errorText}>{passwordError}</Text>
+                )}
+                
+                {/* Password Requirements Checklist (when focused or has errors) */}
+                {(focusedInput === "password" || passwordError) && password.length > 0 && (
+                  <View style={styles.requirementsContainer}>
+                    <View style={styles.requirementRow}>
+                      <Ionicons
+                        name={password.length >= 8 ? "checkmark-circle" : "ellipse-outline"}
+                        size={16}
+                        color={password.length >= 8 ? "#10B981" : "#9CA3AF"}
+                      />
+                      <Text
+                        style={[
+                          styles.requirementText,
+                          password.length >= 8 && styles.requirementMet,
+                        ]}
+                      >
+                        At least 8 characters
+                      </Text>
+                    </View>
+                    <View style={styles.requirementRow}>
+                      <Ionicons
+                        name={/\d/.test(password) ? "checkmark-circle" : "ellipse-outline"}
+                        size={16}
+                        color={/\d/.test(password) ? "#10B981" : "#9CA3AF"}
+                      />
+                      <Text
+                        style={[
+                          styles.requirementText,
+                          /\d/.test(password) && styles.requirementMet,
+                        ]}
+                      >
+                        At least one number
+                      </Text>
+                    </View>
+                  </View>
+                )}
               </View>
 
-              <View style={styles.passwordContainer}>
-                <TextInput
-                  style={[
-                    styles.input,
-                    styles.passwordInput,
-                    focusedInput === "confirmPassword" && styles.inputFocused,
-                  ]}
-                  placeholder="Confirm Password"
-                  placeholderTextColor="#9CA3AF"
-                  value={confirmPassword}
-                  onChangeText={setConfirmPassword}
-                  secureTextEntry={!showConfirmPassword}
-                  onFocus={() => setFocusedInput("confirmPassword")}
-                  onBlur={() => setFocusedInput(null)}
-                />
-                <TouchableOpacity
-                  style={styles.eyeIcon}
-                  onPress={() => setShowConfirmPassword(!showConfirmPassword)}
-                >
-                  <Ionicons
-                    name={showConfirmPassword ? "eye-off" : "eye"}
-                    size={20}
-                    color="#9CA3AF"
+              <View>
+                <View style={styles.passwordContainer}>
+                  <TextInput
+                    style={[
+                      styles.input,
+                      styles.passwordInput,
+                      focusedInput === "confirmPassword" && styles.inputFocused,
+                      confirmPasswordError && styles.inputError,
+                    ]}
+                    placeholder="Confirm Password"
+                    placeholderTextColor="#9CA3AF"
+                    value={confirmPassword}
+                    onChangeText={handleConfirmPasswordChange}
+                    secureTextEntry={!showConfirmPassword}
+                    onFocus={() => {
+                      setFocusedInput("confirmPassword");
+                      setConfirmPasswordError(null);
+                    }}
+                    onBlur={handleConfirmPasswordBlur}
                   />
-                </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.eyeIcon}
+                    onPress={() => setShowConfirmPassword(!showConfirmPassword)}
+                  >
+                    <Ionicons
+                      name={showConfirmPassword ? "eye-off" : "eye"}
+                      size={20}
+                      color="#9CA3AF"
+                    />
+                  </TouchableOpacity>
+                </View>
+                {confirmPasswordError && (
+                  <Text style={styles.errorText}>{confirmPasswordError}</Text>
+                )}
               </View>
             </View>
 
             {/* Continue Button */}
             <TouchableOpacity
-              style={styles.continueButton}
+              style={[
+                styles.continueButton,
+                !isFormValid() && styles.continueButtonDisabled,
+              ]}
               activeOpacity={0.8}
+              disabled={!isFormValid()}
               onPress={() => {
-                // Validate phone before submission
-                const validation = validatePhoneNumber(phone);
-                if (!validation.isValid) {
-                  setPhoneError(validation.error || "Invalid phone number");
+                // Validate all fields before submission
+                const phoneValidation = validatePhoneNumber(phone);
+                if (!phoneValidation.isValid) {
+                  setPhoneError(phoneValidation.error || "Invalid phone number");
+                  return;
+                }
+
+                const passwordValid = validatePassword(password);
+                if (!passwordValid.isValid) {
+                  setPasswordError(passwordValid.errors[0] || "Invalid password");
+                  return;
+                }
+
+                const confirmValid = validateConfirmPassword(password, confirmPassword);
+                if (!confirmValid.isValid) {
+                  setConfirmPasswordError(confirmValid.error || "Passwords do not match");
                   return;
                 }
                 
+                // All validations passed, ready for API submission
                 // Phone is normalized and validated, ready for API submission
                 // The phone will be in E.164 format: +1876XXXXXXX
                 console.log("Normalized phone:", phone);
+                console.log("Password validated:", passwordValidation.strength);
                 // TODO: Submit form data to API
               }}
             >
-              <Text style={styles.continueButtonText}>Continue</Text>
+              <Text
+                style={[
+                  styles.continueButtonText,
+                  !isFormValid() && styles.continueButtonTextDisabled,
+                ]}
+              >
+                Continue
+              </Text>
             </TouchableOpacity>
 
             {/* Terms and Privacy */}
@@ -331,6 +538,69 @@ const styles = StyleSheet.create({
     color: "#10B981",
     fontSize: 14,
     fontWeight: "500",
+  },
+  strengthContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginTop: 4,
+    marginBottom: 8,
+    gap: 8,
+  },
+  strengthBarContainer: {
+    flex: 1,
+    height: 4,
+    backgroundColor: "#E5E7EB",
+    borderRadius: 2,
+    overflow: "hidden",
+  },
+  strengthBar: {
+    height: "100%",
+    borderRadius: 2,
+  },
+  strengthText: {
+    fontSize: 12,
+    fontWeight: "600",
+    minWidth: 50,
+  },
+  hintsContainer: {
+    marginTop: 4,
+    marginBottom: 8,
+    paddingLeft: 4,
+  },
+  hintRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginBottom: 4,
+  },
+  hintText: {
+    fontSize: 12,
+    color: "#6B7280",
+  },
+  requirementsContainer: {
+    marginTop: 8,
+    marginBottom: 12,
+    paddingLeft: 4,
+  },
+  requirementRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 6,
+  },
+  requirementText: {
+    fontSize: 12,
+    color: "#6B7280",
+  },
+  requirementMet: {
+    color: "#10B981",
+  },
+  continueButtonDisabled: {
+    backgroundColor: "#D1D5DB",
+    opacity: 0.6,
+  },
+  continueButtonTextDisabled: {
+    color: "#9CA3AF",
   },
 });
 
