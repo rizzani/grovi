@@ -42,9 +42,8 @@ export default function SignUp() {
   });
 
   const handlePhoneChange = (text: string) => {
-    // Normalize the input as user types
-    const normalized = normalizePhoneNumber(text);
-    setPhone(normalized);
+    // Allow free editing without forcing normalization during typing
+    setPhone(text);
     
     // Clear error when user starts typing
     if (phoneError) {
@@ -52,9 +51,22 @@ export default function SignUp() {
     }
   };
 
+  const handlePhoneFocus = () => {
+    setFocusedInput("phone");
+    setPhoneError(null);
+    
+    // Add +1876 prefix whenever field is empty on focus
+    if (phone === "") {
+      setPhone("+1876");
+    }
+  };
+
   const handlePhoneBlur = () => {
-    // Validate on blur
-    const validation = validatePhoneNumber(phone);
+    // Normalize and validate on blur
+    const normalized = normalizePhoneNumber(phone);
+    setPhone(normalized);
+    
+    const validation = validatePhoneNumber(normalized);
     if (!validation.isValid) {
       setPhoneError(validation.error || "Invalid phone number");
     } else {
@@ -174,10 +186,7 @@ export default function SignUp() {
                   value={phone}
                   onChangeText={handlePhoneChange}
                   keyboardType="phone-pad"
-                  onFocus={() => {
-                    setFocusedInput("phone");
-                    setPhoneError(null);
-                  }}
+                  onFocus={handlePhoneFocus}
                   onBlur={handlePhoneBlur}
                 />
                 {phoneError && (
