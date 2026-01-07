@@ -137,7 +137,8 @@ export default function SignIn() {
               </View>
             </TouchableOpacity>
 
-            <TouchableOpacity style={styles.socialButton} activeOpacity={0.8}>
+            {/* Facebook button temporarily disabled */}
+            {/* <TouchableOpacity style={styles.socialButton} activeOpacity={0.8}>
               <View style={styles.facebookButtonInner}>
                 <View style={styles.facebookIconContainer}>
                   <Image
@@ -148,7 +149,7 @@ export default function SignIn() {
                 </View>
                 <Text style={styles.socialButtonText}>Facebook</Text>
               </View>
-            </TouchableOpacity>
+            </TouchableOpacity> */}
           </View>
 
           {/* Footer */}
@@ -269,12 +270,10 @@ const styles = StyleSheet.create({
     marginHorizontal: 16,
   },
   socialContainer: {
-    flexDirection: "row",
-    gap: 12,
     marginBottom: 32,
   },
   socialButton: {
-    flex: 1,
+    width: "100%",
   },
   // Google button with rainbow gradient border effect
   googleButtonWrapper: {
