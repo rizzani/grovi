@@ -8,6 +8,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
+  ActivityIndicator,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -21,12 +22,14 @@ import {
   getStrengthText,
   type PasswordStrength,
 } from "../lib/password-validation";
+import { signUp } from "../lib/auth-service";
 
 export default function SignUp() {
   const router = useRouter();
   const [phone, setPhone] = useState("");
   const [phoneError, setPhoneError] = useState<string | null>(null);
   const [email, setEmail] = useState("");
+  const [emailError, setEmailError] = useState<string | null>(null);
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -34,6 +37,7 @@ export default function SignUp() {
   const [focusedInput, setFocusedInput] = useState<"phone" | "email" | "password" | "confirmPassword" | null>(null);
   const [passwordError, setPasswordError] = useState<string | null>(null);
   const [confirmPasswordError, setConfirmPasswordError] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
   const [passwordValidation, setPasswordValidation] = useState<ReturnType<typeof validatePassword>>({
     isValid: false,
     errors: [],
@@ -140,13 +144,81 @@ export default function SignUp() {
     setFocusedInput(null);
   };
 
+  // Validate email format
+  const validateEmail = (email: string): boolean => {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    return emailRegex.test(email);
+  };
+
   // Check if form is valid for submission
   const isFormValid = () => {
     const phoneValidation = validatePhoneNumber(phone);
+    const emailValid = email.trim() !== "" && validateEmail(email);
     const passwordValid = passwordValidation.isValid;
     const confirmValid = validateConfirmPassword(password, confirmPassword).isValid;
     
-    return phoneValidation.isValid && passwordValid && confirmValid;
+    return phoneValidation.isValid && emailValid && passwordValid && confirmValid;
+  };
+
+  // Handle form submission
+  const handleSubmit = async () => {
+    // Validate all fields before submission
+    const phoneValidation = validatePhoneNumber(phone);
+    if (!phoneValidation.isValid) {
+      setPhoneError(phoneValidation.error || "Invalid phone number");
+      return;
+    }
+
+    if (!email.trim()) {
+      setEmailError("Email is required");
+      return;
+    }
+
+    if (!validateEmail(email)) {
+      setEmailError("Please enter a valid email address");
+      return;
+    }
+
+    const passwordValid = validatePassword(password);
+    if (!passwordValid.isValid) {
+      setPasswordError(passwordValid.errors[0] || "Invalid password");
+      return;
+    }
+
+    const confirmValid = validateConfirmPassword(password, confirmPassword);
+    if (!confirmValid.isValid) {
+      setConfirmPasswordError(confirmValid.error || "Passwords do not match");
+      return;
+    }
+
+    // Clear any previous errors
+    setEmailError(null);
+    setIsLoading(true);
+
+    try {
+      // Normalize phone number for API submission
+      const normalizedPhone = normalizePhoneNumber(phone);
+      
+      // Create account and session
+      const result = await signUp(email.trim(), password, normalizedPhone);
+
+      if (result.success) {
+        // Redirect to home screen on success
+        router.push("/");
+      } else {
+        // Handle errors
+        if (result.error?.toLowerCase().includes("already exists")) {
+          setEmailError("An account with this email already exists");
+        } else {
+          setEmailError(result.error || "Failed to create account. Please try again.");
+        }
+      }
+    } catch (error: any) {
+      setEmailError("An unexpected error occurred. Please try again.");
+      console.error("Sign up error:", error);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -194,20 +266,36 @@ export default function SignUp() {
                 )}
               </View>
 
-              <TextInput
-                style={[
-                  styles.input,
-                  focusedInput === "email" && styles.inputFocused,
-                ]}
-                placeholder="Email"
-                placeholderTextColor="#9CA3AF"
-                value={email}
-                onChangeText={setEmail}
-                keyboardType="email-address"
-                autoCapitalize="none"
-                onFocus={() => setFocusedInput("email")}
-                onBlur={() => setFocusedInput(null)}
-              />
+              <View>
+                <TextInput
+                  style={[
+                    styles.input,
+                    focusedInput === "email" && styles.inputFocused,
+                    emailError && styles.inputError,
+                  ]}
+                  placeholder="Email"
+                  placeholderTextColor="#9CA3AF"
+                  value={email}
+                  onChangeText={(text) => {
+                    setEmail(text);
+                    // Clear error when user starts typing
+                    if (emailError) {
+                      setEmailError(null);
+                    }
+                  }}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  onFocus={() => {
+                    setFocusedInput("email");
+                    setEmailError(null);
+                  }}
+                  onBlur={() => setFocusedInput(null)}
+                  editable={!isLoading}
+                />
+                {emailError && (
+                  <Text style={styles.errorText}>{emailError}</Text>
+                )}
+              </View>
 
               <View>
                 <View style={styles.passwordContainer}>
@@ -361,46 +449,27 @@ export default function SignUp() {
             <TouchableOpacity
               style={[
                 styles.continueButton,
-                !isFormValid() && styles.continueButtonDisabled,
+                (!isFormValid() || isLoading) && styles.continueButtonDisabled,
               ]}
               activeOpacity={0.8}
-              disabled={!isFormValid()}
-              onPress={() => {
-                // Validate all fields before submission
-                const phoneValidation = validatePhoneNumber(phone);
-                if (!phoneValidation.isValid) {
-                  setPhoneError(phoneValidation.error || "Invalid phone number");
-                  return;
-                }
-
-                const passwordValid = validatePassword(password);
-                if (!passwordValid.isValid) {
-                  setPasswordError(passwordValid.errors[0] || "Invalid password");
-                  return;
-                }
-
-                const confirmValid = validateConfirmPassword(password, confirmPassword);
-                if (!confirmValid.isValid) {
-                  setConfirmPasswordError(confirmValid.error || "Passwords do not match");
-                  return;
-                }
-                
-                // All validations passed, ready for API submission
-                // Phone is normalized and validated, ready for API submission
-                // The phone will be in E.164 format: +1876XXXXXXX
-                console.log("Normalized phone:", phone);
-                console.log("Password validated:", passwordValidation.strength);
-                // TODO: Submit form data to API
-              }}
+              disabled={!isFormValid() || isLoading}
+              onPress={handleSubmit}
             >
-              <Text
-                style={[
-                  styles.continueButtonText,
-                  !isFormValid() && styles.continueButtonTextDisabled,
-                ]}
-              >
-                Continue
-              </Text>
+              {isLoading ? (
+                <View style={styles.loadingContainer}>
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                  <Text style={styles.continueButtonText}>Creating account...</Text>
+                </View>
+              ) : (
+                <Text
+                  style={[
+                    styles.continueButtonText,
+                    (!isFormValid() || isLoading) && styles.continueButtonTextDisabled,
+                  ]}
+                >
+                  Continue
+                </Text>
+              )}
             </TouchableOpacity>
 
             {/* Terms and Privacy */}
@@ -610,6 +679,11 @@ const styles = StyleSheet.create({
   },
   continueButtonTextDisabled: {
     color: "#9CA3AF",
+  },
+  loadingContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
   },
 });
 
