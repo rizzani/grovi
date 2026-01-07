@@ -10,7 +10,29 @@ This is an [Expo](https://expo.dev) project created with [`create-expo-app`](htt
    npm install
    ```
 
-2. Start the app
+2. Set up environment variables
+
+   Copy `.env.example` to `.env` and fill in your Appwrite credentials:
+   
+   ```bash
+   cp .env.example .env
+   ```
+   
+   Then edit `.env` and add:
+   - `EXPO_PUBLIC_APPWRITE_ENDPOINT` - Your Appwrite endpoint (e.g., `https://cloud.appwrite.io/v1`)
+   - `EXPO_PUBLIC_APPWRITE_PROJECT_ID` - Your Appwrite project ID
+   - `APPWRITE_API_KEY` - Your Appwrite admin API key (for database setup)
+   - `APPWRITE_DATABASE_ID` - Optional, defaults to `grovi-db`
+
+3. Set up the database
+
+   Run the database setup script to create collections, attributes, and permissions:
+   
+   ```bash
+   npm run setup-database
+   ```
+
+4. Start the app
 
    ```bash
    npx expo start
