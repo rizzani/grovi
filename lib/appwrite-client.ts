@@ -1,4 +1,4 @@
-import { Client, Account } from "appwrite";
+import { Client, Account, Databases } from "appwrite";
 import Constants from "expo-constants";
 
 // Get environment variables
@@ -9,6 +9,10 @@ const endpoint = Constants.expoConfig?.extra?.EXPO_PUBLIC_APPWRITE_ENDPOINT ||
 const projectId = Constants.expoConfig?.extra?.EXPO_PUBLIC_APPWRITE_PROJECT_ID || 
   process.env.EXPO_PUBLIC_APPWRITE_PROJECT_ID || 
   "";
+
+const databaseId = Constants.expoConfig?.extra?.EXPO_PUBLIC_APPWRITE_DATABASE_ID ||
+  process.env.EXPO_PUBLIC_APPWRITE_DATABASE_ID ||
+  "grovi-db";
 
 if (!endpoint || !projectId) {
   console.warn(
@@ -24,5 +28,8 @@ const client = new Client()
 // Initialize Account service
 const account = new Account(client);
 
-export { client, account };
+// Initialize Databases service
+const databases = new Databases(client);
+
+export { client, account, databases, databaseId };
 

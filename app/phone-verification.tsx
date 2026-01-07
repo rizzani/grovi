@@ -21,6 +21,7 @@ import {
   verifyPhone,
 } from "../lib/auth-service";
 import { account } from "../lib/appwrite-client";
+import { createOrUpdateProfile } from "../lib/profile-service";
 
 type Step = "phone" | "otp";
 
@@ -215,6 +216,25 @@ export default function PhoneVerification() {
         setOtpError(result.error || "Invalid verification code");
         setIsLoading(false);
         return;
+      }
+
+      // Phone verification successful - create/update profile
+      try {
+        // Get user account data
+        const user = await account.get();
+        
+        // Create or update profile in database
+        await createOrUpdateProfile({
+          userId: user.$id,
+          email: user.email,
+          phone: user.phone || phone,
+          name: user.name || undefined,
+        });
+        
+        console.log("Profile created/updated successfully");
+      } catch (profileError: any) {
+        // Log error but don't block navigation - profile can be created later
+        console.error("Failed to create/update profile:", profileError.message);
       }
 
       // Success - navigate to home
