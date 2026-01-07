@@ -203,8 +203,14 @@ export default function SignUp() {
       const result = await signUp(email.trim(), password, normalizedPhone);
 
       if (result.success) {
-        // Redirect to home screen on success
-        router.push("/");
+        // If phone was provided, redirect to phone verification
+        // Otherwise, go to home
+        const normalizedPhone = normalizePhoneNumber(phone);
+        if (phone && validatePhoneNumber(normalizedPhone).isValid) {
+          router.push("/phone-verification");
+        } else {
+          router.push("/");
+        }
       } else {
         // Handle errors
         if (result.error?.toLowerCase().includes("already exists")) {
