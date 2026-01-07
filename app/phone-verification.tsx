@@ -217,8 +217,8 @@ export default function PhoneVerification() {
         return;
       }
 
-      // Success - navigate to home
-      router.replace("/");
+      // Success - navigate to verification success screen
+      router.replace("/verified");
     } catch (error: any) {
       setOtpError("An unexpected error occurred. Please try again.");
       console.error("OTP verification error:", error);
