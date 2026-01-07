@@ -14,6 +14,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
 import { useRouter } from "expo-router";
+import Svg, { Defs, LinearGradient, Stop, Rect } from "react-native-svg";
 import { normalizePhoneNumber, validatePhoneNumber } from "../lib/phone-validation";
 import {
   validatePassword,
@@ -478,6 +479,59 @@ export default function SignUp() {
               )}
             </TouchableOpacity>
 
+            {/* Divider */}
+            <View style={styles.dividerContainer}>
+              <View style={styles.dividerLine} />
+              <Text style={styles.dividerText}>Or continue with</Text>
+              <View style={styles.dividerLine} />
+            </View>
+
+            {/* Social Login Buttons */}
+            <View style={styles.socialContainer}>
+              <TouchableOpacity style={styles.socialButton} activeOpacity={0.8}>
+                <View style={styles.googleButtonWrapper}>
+                  <View style={styles.googleGradientBackground}>
+                    <Svg height="100%" width="100%" style={StyleSheet.absoluteFillObject}>
+                      <Defs>
+                        <LinearGradient id="rainbowGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+                          <Stop offset="0%" stopColor="#EA4335" />
+                          <Stop offset="25%" stopColor="#FBBC04" />
+                          <Stop offset="50%" stopColor="#34A853" />
+                          <Stop offset="75%" stopColor="#4285F4" />
+                          <Stop offset="100%" stopColor="#EA4335" />
+                        </LinearGradient>
+                      </Defs>
+                      <Rect width="100%" height="100%" rx="12" fill="url(#rainbowGradient)" />
+                    </Svg>
+                  </View>
+                  <View style={styles.googleButtonInner}>
+                    <View style={styles.googleIconContainer}>
+                      <Image
+                        source={require("../assets/google-logo.png")}
+                        style={styles.googleLogo}
+                        contentFit="contain"
+                      />
+                    </View>
+                    <Text style={styles.socialButtonText}>Google</Text>
+                  </View>
+                </View>
+              </TouchableOpacity>
+
+              {/* Facebook button temporarily disabled */}
+              {/* <TouchableOpacity style={styles.socialButton} activeOpacity={0.8}>
+                <View style={styles.facebookButtonInner}>
+                  <View style={styles.facebookIconContainer}>
+                    <Image
+                      source={require("../assets/facebook-logo.png")}
+                      style={styles.facebookLogo}
+                      contentFit="contain"
+                    />
+                  </View>
+                  <Text style={styles.socialButtonText}>Facebook</Text>
+                </View>
+              </TouchableOpacity> */}
+            </View>
+
             {/* Terms and Privacy */}
             <View style={styles.termsContainer}>
               <Text style={styles.termsText}>
@@ -690,6 +744,89 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
+  },
+  dividerContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 24,
+  },
+  dividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: "#E5E7EB",
+  },
+  dividerText: {
+    color: "#6B7280",
+    fontSize: 14,
+    marginHorizontal: 16,
+  },
+  socialContainer: {
+    marginBottom: 24,
+  },
+  socialButton: {
+    width: "100%",
+  },
+  // Google button with rainbow gradient border effect
+  googleButtonWrapper: {
+    borderRadius: 12,
+    overflow: "hidden",
+    position: "relative",
+  },
+  googleGradientBackground: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    borderRadius: 12,
+  },
+  googleButtonInner: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 12,
+    margin: 1.5,
+    paddingVertical: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    position: "relative",
+  },
+  googleIconContainer: {
+    width: 24,
+    height: 24,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  googleLogo: {
+    width: 24,
+    height: 24,
+  },
+  // Facebook button with blue border
+  facebookButtonInner: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: "#1877F2",
+    paddingVertical: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+  },
+  facebookIconContainer: {
+    width: 24,
+    height: 24,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  facebookLogo: {
+    width: 24,
+    height: 24,
+  },
+  socialButtonText: {
+    color: "#374151",
+    fontSize: 16,
+    fontWeight: "500",
   },
 });
 
