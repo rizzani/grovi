@@ -78,7 +78,7 @@ const styles = StyleSheet.create({
     borderRadius: 24,
     marginBottom: 32,
     overflow: "hidden",
-    height: 280,
+    height: 340,
     width: "100%",
   },
   illustrationImage: {
