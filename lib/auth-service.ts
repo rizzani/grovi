@@ -1,5 +1,6 @@
 import { account } from "./appwrite-client";
 import { ID } from "appwrite";
+import { createOrUpdateProfile } from "./profile-service";
 
 export interface SignUpResult {
   success: boolean;
@@ -141,6 +142,22 @@ export async function signUp(
       console.warn("Failed to set phone during sign-up:", error);
       // Continue with sign-up success - phone can be added later
     }
+  }
+
+  // Create/update profile in database immediately after account creation
+  // This ensures profile exists right away to prevent any issues
+  try {
+    const user = await account.get();
+    await createOrUpdateProfile({
+      userId: user.$id,
+      email: user.email,
+      phone: user.phone || phone || "",
+      name: user.name || undefined,
+    });
+  } catch (profileError: any) {
+    // Log error but don't fail sign-up - profile can be created/updated later
+    console.warn("Failed to create profile during sign-up:", profileError);
+    // Continue with sign-up success - profile can be created later
   }
 
   return {
