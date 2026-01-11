@@ -20,10 +20,12 @@ if (!endpoint || !projectId) {
   );
 }
 
-// Initialize Appwrite client
-const client = new Client()
-  .setEndpoint(endpoint)
-  .setProject(projectId);
+// Initialize Appwrite client only if endpoint and projectId are provided
+// This prevents "Invalid endpoint URL" errors when environment variables are not set
+const client = new Client();
+if (endpoint && projectId) {
+  client.setEndpoint(endpoint).setProject(projectId);
+}
 
 // Initialize Account service
 const account = new Account(client);

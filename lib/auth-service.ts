@@ -35,13 +35,18 @@ export async function createAccount(
     const errorMessage = error.message || "An error occurred";
     const errorCode = error.code || error.response?.code;
 
-    // Check for duplicate email error
-    if (
+    // Log the actual error for debugging
+    console.log("Account creation error:", { errorCode, errorMessage, error });
+
+    // Check for duplicate email error - be more specific
+    const lowerErrorMessage = errorMessage.toLowerCase();
+    const isDuplicateError = 
       errorCode === 409 ||
-      errorMessage.toLowerCase().includes("user_already_exists") ||
-      errorMessage.toLowerCase().includes("already exists") ||
-      errorMessage.toLowerCase().includes("duplicate")
-    ) {
+      lowerErrorMessage.includes("user_already_exists") ||
+      lowerErrorMessage.includes("user already exists") ||
+      (lowerErrorMessage.includes("email") && lowerErrorMessage.includes("already exists"));
+
+    if (isDuplicateError) {
       return {
         success: false,
         error: "An account with this email already exists",
@@ -319,6 +324,32 @@ export async function verifyPhone(otp: string): Promise<PhoneVerificationResult>
     return {
       success: false,
       error: errorMessage || "Failed to verify phone number. Please try again.",
+    };
+  }
+}
+
+export interface LogoutResult {
+  success: boolean;
+  error?: string;
+}
+
+/**
+ * Logs out the current user by deleting their session
+ * @returns Promise with result containing success status and optional error message
+ */
+export async function logout(): Promise<LogoutResult> {
+  try {
+    await account.deleteSession("current");
+
+    return {
+      success: true,
+    };
+  } catch (error: any) {
+    const errorMessage = error.message || "An error occurred";
+
+    return {
+      success: false,
+      error: errorMessage || "Failed to logout. Please try again.",
     };
   }
 }

@@ -234,7 +234,7 @@ export default function PhoneVerification() {
       }
 
       // Success - navigate to home
-      router.replace("/");
+      router.replace("/home");
     } catch (error: any) {
       setOtpError("An unexpected error occurred. Please try again.");
       console.error("OTP verification error:", error);
