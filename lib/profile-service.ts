@@ -1,5 +1,5 @@
 import { databases, databaseId } from "./appwrite-client";
-import { ID, Query } from "appwrite";
+import { ID, Query, Permission, Role } from "appwrite";
 
 const PROFILES_COLLECTION_ID = "profiles";
 const ADDRESSES_COLLECTION_ID = "addresses";
@@ -84,8 +84,9 @@ export async function createOrUpdateProfile(
       }
     }
 
-    // Create new profile
+    // Create new profile with document-level permissions
     // Note: createdAt is automatically set by Appwrite
+    // Permissions ensure only the user can read/write their own profile
     const newProfile = await databases.createDocument(
       databaseId,
       PROFILES_COLLECTION_ID,
@@ -95,7 +96,11 @@ export async function createOrUpdateProfile(
         email,
         phone,
         name: name || null,
-      }
+      },
+      [
+        Permission.read(Role.user(userId)),
+        Permission.write(Role.user(userId)),
+      ]
     );
 
     return newProfile as Profile;
@@ -148,6 +153,7 @@ export async function createAddress(
     }
 
     // Note: createdAt is automatically set by Appwrite
+    // Permissions ensure only the user can read/write their own addresses
     const newAddress = await databases.createDocument(
       databaseId,
       ADDRESSES_COLLECTION_ID,
@@ -157,7 +163,11 @@ export async function createAddress(
         parish,
         details,
         default: isDefault,
-      }
+      },
+      [
+        Permission.read(Role.user(userId)),
+        Permission.write(Role.user(userId)),
+      ]
     );
 
     return newAddress as Address;

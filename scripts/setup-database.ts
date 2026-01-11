@@ -150,7 +150,7 @@ async function setupDatabase() {
               permissions: [
                 Permission.read(Role.users()),
                 Permission.write(Role.users()),
-              ],
+              ], // Collection-level allows querying; document-level restricts access
             }
           );
           console.log(`✓ Created collection '${profilesCollectionId}'`);
@@ -227,7 +227,7 @@ async function setupDatabase() {
           permissions: [
             Permission.read(Role.users()),
             Permission.write(Role.users()),
-          ],
+          ], // Collection-level allows querying; document-level restricts access
         }
       );
       console.log(`  ✓ Updated permissions for '${profilesCollectionId}'`);
@@ -256,7 +256,7 @@ async function setupDatabase() {
               permissions: [
                 Permission.read(Role.users()),
                 Permission.write(Role.users()),
-              ],
+              ], // Collection-level allows querying; document-level restricts access
             }
           );
           console.log(`✓ Created collection '${addressesCollectionId}'`);
@@ -351,7 +351,7 @@ async function setupDatabase() {
           permissions: [
             Permission.read(Role.users()),
             Permission.write(Role.users()),
-          ],
+          ], // Collection-level allows querying; document-level restricts access
         }
       );
       console.log(`  ✓ Updated permissions for '${addressesCollectionId}'`);
