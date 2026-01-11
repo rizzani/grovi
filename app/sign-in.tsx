@@ -7,12 +7,14 @@ import {
   StyleSheet,
   KeyboardAvoidingView,
   Platform,
+  ActivityIndicator,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
 import { useRouter } from "expo-router";
 import Svg, { Defs, LinearGradient, Stop, Rect } from "react-native-svg";
+import { createSession } from "../lib/auth-service";
 
 export default function SignIn() {
   const router = useRouter();
@@ -20,6 +22,44 @@ export default function SignIn() {
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [focusedInput, setFocusedInput] = useState<"email" | "password" | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleSignIn = async () => {
+    // Clear previous errors
+    setError(null);
+
+    // Basic validation
+    if (!email.trim()) {
+      setError("Please enter your email");
+      return;
+    }
+
+    if (!password) {
+      setError("Please enter your password");
+      return;
+    }
+
+    setIsLoading(true);
+
+    try {
+      const result = await createSession(email.trim(), password);
+
+      if (!result.success) {
+        // createSession already returns "Invalid email or password" for auth errors
+        setError(result.error || "Invalid email or password");
+        setIsLoading(false);
+        return;
+      }
+
+      // Success - navigate to home
+      router.replace("/home");
+    } catch (err: any) {
+      // Unexpected error
+      setError("Invalid email or password");
+      setIsLoading(false);
+    }
+  };
 
   return (
     <SafeAreaView style={styles.container}>
@@ -92,11 +132,27 @@ export default function SignIn() {
                 <Text style={styles.resetText}>Reset</Text>
               </TouchableOpacity>
             </View>
+
+            {/* Error Message */}
+            {error && (
+              <View style={styles.errorContainer}>
+                <Text style={styles.errorText}>{error}</Text>
+              </View>
+            )}
           </View>
 
           {/* Continue Button */}
-          <TouchableOpacity style={styles.continueButton}>
-            <Text style={styles.continueButtonText}>Continue</Text>
+          <TouchableOpacity
+            style={[styles.continueButton, isLoading && styles.continueButtonDisabled]}
+            onPress={handleSignIn}
+            disabled={isLoading}
+            activeOpacity={0.8}
+          >
+            {isLoading ? (
+              <ActivityIndicator color="#FFFFFF" />
+            ) : (
+              <Text style={styles.continueButtonText}>Continue</Text>
+            )}
           </TouchableOpacity>
 
           {/* Divider */}
@@ -242,12 +298,29 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "500",
   },
+  errorContainer: {
+    marginTop: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    backgroundColor: "#FEF2F2",
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#FEE2E2",
+  },
+  errorText: {
+    color: "#DC2626",
+    fontSize: 14,
+    textAlign: "center",
+  },
   continueButton: {
     backgroundColor: "#10B981",
     borderRadius: 12,
     paddingVertical: 16,
     alignItems: "center",
     marginBottom: 32,
+  },
+  continueButtonDisabled: {
+    opacity: 0.6,
   },
   continueButtonText: {
     color: "#FFFFFF",
