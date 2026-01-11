@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import {
   Text,
   View,
@@ -8,13 +8,14 @@ import {
   KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
+  Animated,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
 import { useRouter } from "expo-router";
 import Svg, { Defs, LinearGradient, Stop, Rect } from "react-native-svg";
-import { createSession } from "../lib/auth-service";
+import { createSession, sendPasswordReset } from "../lib/auth-service";
 
 export default function SignIn() {
   const router = useRouter();
@@ -24,6 +25,26 @@ export default function SignIn() {
   const [focusedInput, setFocusedInput] = useState<"email" | "password" | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Animation values
+  const errorOpacity = useRef(new Animated.Value(0)).current;
+
+  // Animate error message
+  useEffect(() => {
+    if (error) {
+      Animated.timing(errorOpacity, {
+        toValue: 1,
+        duration: 300,
+        useNativeDriver: true,
+      }).start();
+    } else {
+      Animated.timing(errorOpacity, {
+        toValue: 0,
+        duration: 200,
+        useNativeDriver: true,
+      }).start();
+    }
+  }, [error, errorOpacity]);
 
   const handleSignIn = async () => {
     // Clear previous errors
@@ -46,7 +67,6 @@ export default function SignIn() {
       const result = await createSession(email.trim(), password);
 
       if (!result.success) {
-        // createSession already returns "Invalid email or password" for auth errors
         setError(result.error || "Invalid email or password");
         setIsLoading(false);
         return;
@@ -55,9 +75,24 @@ export default function SignIn() {
       // Success - navigate to home
       router.replace("/home");
     } catch (err: any) {
-      // Unexpected error
       setError("Invalid email or password");
       setIsLoading(false);
+    }
+  };
+
+  const handlePasswordReset = async () => {
+    if (!email.trim()) {
+      setError("Please enter your email first");
+      return;
+    }
+
+    setError(null);
+
+    try {
+      await sendPasswordReset(email.trim());
+      // Success - silently send reset (non-enumerating, no user feedback)
+    } catch (err: any) {
+      // Silently handle error (non-enumerating)
     }
   };
 
@@ -128,22 +163,43 @@ export default function SignIn() {
             {/* Forget Password */}
             <View style={styles.forgetPasswordContainer}>
               <Text style={styles.forgetPasswordText}>Forget password? </Text>
-              <TouchableOpacity>
+              <TouchableOpacity onPress={handlePasswordReset}>
                 <Text style={styles.resetText}>Reset</Text>
               </TouchableOpacity>
             </View>
 
             {/* Error Message */}
             {error && (
-              <View style={styles.errorContainer}>
-                <Text style={styles.errorText}>{error}</Text>
-              </View>
+              <Animated.View
+                style={[
+                  styles.errorContainer,
+                  {
+                    opacity: errorOpacity,
+                    transform: [
+                      {
+                        translateY: errorOpacity.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: [-10, 0],
+                        }),
+                      },
+                    ],
+                  },
+                ]}
+              >
+                <View style={styles.errorContent}>
+                  <Ionicons name="alert-circle" size={16} color="#DC2626" />
+                  <Text style={styles.errorText}>{error}</Text>
+                </View>
+              </Animated.View>
             )}
           </View>
 
           {/* Continue Button */}
           <TouchableOpacity
-            style={[styles.continueButton, isLoading && styles.continueButtonDisabled]}
+            style={[
+              styles.continueButton,
+              isLoading && styles.continueButtonDisabled,
+            ]}
             onPress={handleSignIn}
             disabled={isLoading}
             activeOpacity={0.8}
@@ -306,11 +362,12 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     borderWidth: 1,
     borderColor: "#FEE2E2",
+    overflow: "hidden",
   },
   errorText: {
     color: "#DC2626",
     fontSize: 14,
-    textAlign: "center",
+    flex: 1,
   },
   continueButton: {
     backgroundColor: "#10B981",
@@ -424,5 +481,9 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "500",
   },
+  errorContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
 });
-
