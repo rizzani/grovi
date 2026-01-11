@@ -213,12 +213,8 @@ export default function SignUp() {
           router.push("/");
         }
       } else {
-        // Handle errors
-        if (result.error?.toLowerCase().includes("already exists")) {
-          setEmailError("An account with this email already exists");
-        } else {
-          setEmailError(result.error || "Failed to create account. Please try again.");
-        }
+        // Handle errors - createAccount already returns the proper error message
+        setEmailError(result.error || "Failed to create account. Please try again.");
       }
     } catch (error: any) {
       setEmailError("An unexpected error occurred. Please try again.");
