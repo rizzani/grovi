@@ -333,6 +333,29 @@ export interface LogoutResult {
   error?: string;
 }
 
+export interface AuthStatusResult {
+  isAuthenticated: boolean;
+  error?: string;
+}
+
+/**
+ * Checks if the user is currently authenticated
+ * @returns Promise with result indicating if user is authenticated
+ */
+export async function checkAuthStatus(): Promise<AuthStatusResult> {
+  try {
+    await account.get();
+    return {
+      isAuthenticated: true,
+    };
+  } catch (error: any) {
+    // If account.get() fails, user is not authenticated
+    return {
+      isAuthenticated: false,
+    };
+  }
+}
+
 /**
  * Logs out the current user by deleting their session
  * @returns Promise with result containing success status and optional error message

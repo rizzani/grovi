@@ -1,10 +1,25 @@
+import { useEffect } from "react";
 import { Text, View, TouchableOpacity, StyleSheet, ScrollView } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Image } from "expo-image";
 import { useRouter } from "expo-router";
+import { checkAuthStatus } from "../lib/auth-service";
 
 export default function WelcomeScreen() {
   const router = useRouter();
+
+  useEffect(() => {
+    const bootstrapAuth = async () => {
+      const result = await checkAuthStatus();
+      if (result.isAuthenticated) {
+        router.replace("/home");
+      } else {
+        router.replace("/sign-in");
+      }
+    };
+
+    bootstrapAuth();
+  }, []);
 
   return (
     <SafeAreaView style={styles.container}>
