@@ -24,9 +24,11 @@ import {
   type PasswordStrength,
 } from "../lib/password-validation";
 import { signUp } from "../lib/auth-service";
+import { useUser } from "../contexts/UserContext";
 
 export default function SignUp() {
   const router = useRouter();
+  const { refreshSession } = useUser();
   const [phone, setPhone] = useState("");
   const [phoneError, setPhoneError] = useState<string | null>(null);
   const [email, setEmail] = useState("");
@@ -204,6 +206,9 @@ export default function SignUp() {
       const result = await signUp(email.trim(), password, normalizedPhone);
 
       if (result.success) {
+        // Refresh user context after successful signup
+        await refreshSession();
+
         // If phone was provided, redirect to phone verification
         // Otherwise, go to home (user is now authenticated)
         const normalizedPhone = normalizePhoneNumber(phone);
