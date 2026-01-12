@@ -22,11 +22,13 @@ import {
 } from "../lib/auth-service";
 import { account } from "../lib/appwrite-client";
 import { createOrUpdateProfile } from "../lib/profile-service";
+import { useUser } from "../contexts/UserContext";
 
 type Step = "phone" | "otp";
 
 export default function PhoneVerification() {
   const router = useRouter();
+  const { refreshSession } = useUser();
   const [step, setStep] = useState<Step>("phone");
   const [phone, setPhone] = useState("");
   const [phoneError, setPhoneError] = useState<string | null>(null);
@@ -233,7 +235,8 @@ export default function PhoneVerification() {
         console.warn("Failed to update profile with verified phone:", profileError.message);
       }
 
-      // Success - navigate to home
+      // Success - refresh user context and navigate to home
+      await refreshSession();
       router.replace("/home");
     } catch (error: any) {
       setOtpError("An unexpected error occurred. Please try again.");

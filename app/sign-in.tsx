@@ -16,9 +16,11 @@ import { Image } from "expo-image";
 import { useRouter } from "expo-router";
 import Svg, { Defs, LinearGradient, Stop, Rect } from "react-native-svg";
 import { createSession, sendPasswordReset } from "../lib/auth-service";
+import { useUser } from "../contexts/UserContext";
 
 export default function SignIn() {
   const router = useRouter();
+  const { refreshSession } = useUser();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -72,7 +74,8 @@ export default function SignIn() {
         return;
       }
 
-      // Success - navigate to home
+      // Success - refresh user context and navigate to home
+      await refreshSession();
       router.replace("/home");
     } catch (err: any) {
       setError("Invalid email or password");
