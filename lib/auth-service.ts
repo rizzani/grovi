@@ -1,6 +1,9 @@
 import { account } from "./appwrite-client";
 import { ID } from "appwrite";
 import { createOrUpdateProfile } from "./profile-service";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+
+const HAS_LOGGED_IN_KEY = "@grovi:has_logged_in";
 
 export interface SignUpResult {
   success: boolean;
@@ -73,6 +76,9 @@ export async function createSession(
 ): Promise<SignUpResult> {
   try {
     await account.createEmailPasswordSession(email, password);
+    
+    // Mark that user has logged in before
+    await AsyncStorage.setItem(HAS_LOGGED_IN_KEY, "true");
 
     return {
       success: true,
@@ -80,6 +86,19 @@ export async function createSession(
   } catch (error: any) {
     const errorMessage = error.message || "An error occurred";
     const errorCode = error.code || error.response?.code;
+
+    // Handle rate limiting (429 - Too Many Requests)
+    if (
+      errorCode === 429 ||
+      errorMessage.toLowerCase().includes("rate limit") ||
+      errorMessage.toLowerCase().includes("too many requests") ||
+      errorMessage.toLowerCase().includes("too many attempts")
+    ) {
+      return {
+        success: false,
+        error: "Too many login attempts. Please wait a few minutes before trying again.",
+      };
+    }
 
     // Handle authentication errors
     if (errorCode === 401 || errorMessage.toLowerCase().includes("invalid")) {
@@ -164,6 +183,9 @@ export async function signUp(
     console.warn("Failed to create profile during sign-up:", profileError);
     // Continue with sign-up success - profile can be created later
   }
+
+  // Mark that user has logged in before (sign-up creates a session)
+  await AsyncStorage.setItem(HAS_LOGGED_IN_KEY, "true");
 
   return {
     success: true,
@@ -339,6 +361,19 @@ export interface AuthStatusResult {
 }
 
 /**
+ * Checks if the user has logged in before (even if currently logged out)
+ * @returns Promise indicating if user has logged in before
+ */
+export async function hasLoggedInBefore(): Promise<boolean> {
+  try {
+    const value = await AsyncStorage.getItem(HAS_LOGGED_IN_KEY);
+    return value === "true";
+  } catch (error) {
+    return false;
+  }
+}
+
+/**
  * Checks if the user is currently authenticated
  * @returns Promise with result indicating if user is authenticated
  */
@@ -377,3 +412,46 @@ export async function logout(): Promise<LogoutResult> {
   }
 }
 
+export interface PasswordResetResult {
+  success: boolean;
+  error?: string;
+}
+
+/**
+ * Sends a password reset email to the specified email address
+ * Uses non-enumerating message to prevent email enumeration attacks
+ * @param email - The email address to send the reset link to
+ * @returns Promise with result containing success status
+ * Note: Always returns success=true with a generic message to prevent enumeration
+ */
+export async function sendPasswordReset(email: string): Promise<PasswordResetResult> {
+  try {
+    // Appwrite's createRecovery will send an email if the account exists
+    // We don't want to reveal whether the email exists, so we always return success
+    // Note: URL must be a valid HTTP/HTTPS URL registered in Appwrite console
+    // For mobile apps, use a web URL that redirects to the app via deep link
+    // If not configured, Appwrite will use the default redirect URL from console settings
+    const resetUrl = process.env.EXPO_PUBLIC_PASSWORD_RESET_URL;
+    
+    if (resetUrl) {
+      await account.createRecovery(email, resetUrl);
+    } else {
+      // If no URL configured, Appwrite will use the default from console settings
+      // This requires the URL to be set in Appwrite console under Auth settings
+      await account.createRecovery(email, "");
+    }
+
+    // Always return success with generic message (non-enumerating)
+    return {
+      success: true,
+    };
+  } catch (error: any) {
+    // Even on error, we return success to prevent email enumeration
+    // The error could be due to the email not existing or URL not configured, but we don't reveal that
+    // Silently handle - don't log to avoid exposing errors
+    // Always return success with generic message
+    return {
+      success: true,
+    };
+  }
+}

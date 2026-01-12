@@ -205,12 +205,12 @@ export default function SignUp() {
 
       if (result.success) {
         // If phone was provided, redirect to phone verification
-        // Otherwise, go to home
+        // Otherwise, go to home (user is now authenticated)
         const normalizedPhone = normalizePhoneNumber(phone);
         if (phone && validatePhoneNumber(normalizedPhone).isValid) {
           router.push("/phone-verification");
         } else {
-          router.push("/");
+          router.replace("/home");
         }
       } else {
         // Handle errors - createAccount already returns the proper error message
