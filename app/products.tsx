@@ -1,116 +1,87 @@
-import { Text, View, StyleSheet, ScrollView, TouchableOpacity, TextInput, ActivityIndicator } from "react-native";
+import { Text, View, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useState, useEffect, useCallback } from "react";
-import { useRouter } from "expo-router";
+import { useState, useEffect } from "react";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
-import { searchProducts, Product, formatPrice, getProductImageUrl } from "../../lib/product-service";
+import { getProducts, Product, formatPrice, getProductImageUrl } from "../lib/product-service";
+import { getCategory, Category } from "../lib/category-service";
 
-// Simple debounce hook
-function useDebounce<T>(value: T, delay: number): T {
-  const [debouncedValue, setDebouncedValue] = useState<T>(value);
-
-  useEffect(() => {
-    const handler = setTimeout(() => {
-      setDebouncedValue(value);
-    }, delay);
-
-    return () => {
-      clearTimeout(handler);
-    };
-  }, [value, delay]);
-
-  return debouncedValue;
-}
-
-export default function SearchScreen() {
+export default function ProductsScreen() {
+  const { categoryId, categoryName } = useLocalSearchParams<{ categoryId: string; categoryName: string }>();
   const router = useRouter();
-  const [searchQuery, setSearchQuery] = useState("");
   const [products, setProducts] = useState<Product[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [category, setCategory] = useState<Category | null>(null);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  
-  const debouncedSearchQuery = useDebounce(searchQuery, 500);
 
   useEffect(() => {
-    if (debouncedSearchQuery.trim()) {
-      performSearch(debouncedSearchQuery);
-    } else {
-      setProducts([]);
-      setError(null);
-    }
-  }, [debouncedSearchQuery]);
+    fetchData();
+  }, [categoryId]);
 
-  const performSearch = async (query: string) => {
+  const fetchData = async () => {
     try {
       setLoading(true);
       setError(null);
-      const results = await searchProducts(query);
-      setProducts(results);
+
+      // Fetch category info if categoryId is provided
+      if (categoryId) {
+        const fetchedCategory = await getCategory(categoryId);
+        setCategory(fetchedCategory);
+      }
+
+      // Fetch products for this category
+      const fetchedProducts = await getProducts(50, categoryId, true);
+      setProducts(fetchedProducts);
     } catch (err: any) {
-      console.error("Search error:", err);
-      setError(err.message || "Failed to search products");
+      console.error("Error fetching products:", err);
+      setError(err.message || "Failed to load products");
     } finally {
       setLoading(false);
     }
   };
 
+  const displayName = category?.name || categoryName || "Products";
+
   return (
     <SafeAreaView style={styles.container} edges={["top"]}>
       <View style={styles.header}>
-        <View style={styles.searchContainer}>
-          <Ionicons name="search" size={20} color="#6B7280" style={styles.searchIcon} />
-          <TextInput
-            style={styles.searchInput}
-            placeholder="Search products..."
-            placeholderTextColor="#9CA3AF"
-            value={searchQuery}
-            onChangeText={setSearchQuery}
-            autoFocus
-          />
-          {searchQuery.length > 0 && (
-            <TouchableOpacity
-              onPress={() => setSearchQuery("")}
-              style={styles.clearButton}
-              activeOpacity={0.7}
-            >
-              <Ionicons name="close-circle" size={20} color="#6B7280" />
-            </TouchableOpacity>
-          )}
-        </View>
+        <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+          <Ionicons name="arrow-back" size={24} color="#111827" />
+        </TouchableOpacity>
+        <Text style={styles.headerTitle}>{displayName}</Text>
+        <View style={styles.placeholder} />
       </View>
 
       {loading ? (
         <View style={styles.centerContainer}>
           <ActivityIndicator size="large" color="#10B981" />
-          <Text style={styles.loadingText}>Searching...</Text>
+          <Text style={styles.loadingText}>Loading products...</Text>
         </View>
       ) : error ? (
         <View style={styles.centerContainer}>
           <Ionicons name="alert-circle-outline" size={48} color="#EF4444" />
           <Text style={styles.errorText}>{error}</Text>
-        </View>
-      ) : searchQuery.trim() === "" ? (
-        <View style={styles.centerContainer}>
-          <Ionicons name="search-outline" size={64} color="#9CA3AF" />
-          <Text style={styles.emptyText}>Search for products</Text>
-          <Text style={styles.emptySubtext}>Enter a product name, brand, or description</Text>
+          <TouchableOpacity 
+            style={styles.retryButton} 
+            onPress={fetchData}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.retryButtonText}>Retry</Text>
+          </TouchableOpacity>
         </View>
       ) : products.length === 0 ? (
         <View style={styles.centerContainer}>
           <Ionicons name="cube-outline" size={48} color="#9CA3AF" />
           <Text style={styles.emptyText}>No products found</Text>
-          <Text style={styles.emptySubtext}>Try a different search term</Text>
+          <Text style={styles.emptySubtext}>Check back later for products in this category</Text>
         </View>
       ) : (
-        <ScrollView
+        <ScrollView 
           style={styles.scrollView}
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
         >
-          <Text style={styles.resultsCount}>
-            {products.length} {products.length === 1 ? "result" : "results"} found
-          </Text>
           <View style={styles.productsGrid}>
             {products.map((product) => {
               const imageUrl = getProductImageUrl(product);
@@ -145,6 +116,9 @@ export default function SearchScreen() {
                     <Text style={styles.productPrice}>
                       {formatPrice(product.price_jmd_cents, product.price_currency)}
                     </Text>
+                    {product.unit_size && (
+                      <Text style={styles.productUnit}>{product.unit_size}</Text>
+                    )}
                   </View>
                 </TouchableOpacity>
               );
@@ -162,44 +136,33 @@ const styles = StyleSheet.create({
     backgroundColor: "#FFFFFF",
   },
   header: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderBottomWidth: 1,
     borderBottomColor: "#E5E7EB",
   },
-  searchContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#F9FAFB",
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
+  backButton: {
+    padding: 8,
   },
-  searchIcon: {
-    marginRight: 12,
-  },
-  searchInput: {
-    flex: 1,
-    fontSize: 16,
+  headerTitle: {
+    fontSize: 18,
+    fontWeight: "600",
     color: "#111827",
-    padding: 0,
+    flex: 1,
+    textAlign: "center",
   },
-  clearButton: {
-    marginLeft: 8,
-    padding: 4,
+  placeholder: {
+    width: 40,
   },
   scrollView: {
     flex: 1,
   },
   scrollContent: {
     padding: 16,
-  },
-  resultsCount: {
-    fontSize: 14,
-    color: "#6B7280",
-    marginBottom: 16,
+    paddingBottom: 24,
   },
   productsGrid: {
     flexDirection: "row",
@@ -251,6 +214,11 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: "#10B981",
     fontWeight: "600",
+    marginBottom: 2,
+  },
+  productUnit: {
+    fontSize: 11,
+    color: "#9CA3AF",
   },
   centerContainer: {
     flex: 1,
@@ -268,6 +236,18 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: "#EF4444",
     textAlign: "center",
+    marginBottom: 24,
+  },
+  retryButton: {
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    backgroundColor: "#10B981",
+    borderRadius: 8,
+  },
+  retryButtonText: {
+    color: "#FFFFFF",
+    fontSize: 16,
+    fontWeight: "600",
   },
   emptyText: {
     marginTop: 16,

@@ -9,7 +9,8 @@
     "ios": "expo start --ios",
     "web": "expo start --web",
     "lint": "expo lint",
-    "setup-database": "tsx scripts/setup-database.ts"
+    "setup-database": "tsx scripts/setup-database.ts",
+    "inspect-database": "tsx scripts/inspect-database.ts"
   },
   "dependencies": {
     "@expo/metro-runtime": "~6.1.2",
