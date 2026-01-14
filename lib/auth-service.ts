@@ -172,11 +172,27 @@ export async function signUp(
   // This ensures profile exists right away to prevent any issues
   try {
     const user = await account.get();
+    
+    // Split name into firstName and lastName if name exists
+    let firstName: string | undefined;
+    let lastName: string | undefined;
+    if (user.name) {
+      const parts = user.name.trim().split(/\s+/);
+      if (parts.length === 1) {
+        firstName = parts[0];
+      } else if (parts.length > 1) {
+        firstName = parts[0];
+        lastName = parts.slice(1).join(" ");
+      }
+    }
+    
     await createOrUpdateProfile({
       userId: user.$id,
       email: user.email,
       phone: user.phone || phone || "",
-      name: user.name || undefined,
+      firstName,
+      lastName,
+      name: user.name || undefined, // Keep for backward compatibility
     });
   } catch (profileError: any) {
     // Log error but don't fail sign-up - profile can be created/updated later
@@ -452,6 +468,124 @@ export async function sendPasswordReset(email: string): Promise<PasswordResetRes
     // Always return success with generic message
     return {
       success: true,
+    };
+  }
+}
+
+export interface UpdateProfileResult {
+  success: boolean;
+  error?: string;
+}
+
+/**
+ * Updates the user's name in their Appwrite account
+ * @param name - The new name for the user
+ * @returns Promise with result containing success status and optional error message
+ */
+export async function updateName(name: string): Promise<UpdateProfileResult> {
+  try {
+    await account.updateName(name);
+
+    return {
+      success: true,
+    };
+  } catch (error: any) {
+    const errorMessage = error.message || "An error occurred";
+    const errorCode = error.code || error.response?.code;
+
+    // Handle network errors
+    if (
+      errorMessage.toLowerCase().includes("network") ||
+      errorMessage.toLowerCase().includes("connection") ||
+      errorMessage.toLowerCase().includes("fetch")
+    ) {
+      return {
+        success: false,
+        error: "Connection error. Please check your internet and try again.",
+      };
+    }
+
+    return {
+      success: false,
+      error: errorMessage || "Failed to update name. Please try again.",
+    };
+  }
+}
+
+/**
+ * Updates the user's email address in their Appwrite account
+ * After updating, the email verification status is reset and a verification email is sent
+ * @param email - The new email address
+ * @param password - User's current password (required by Appwrite for security)
+ * @returns Promise with result containing success status and optional error message
+ */
+export async function updateEmail(
+  email: string,
+  password: string
+): Promise<UpdateProfileResult> {
+  try {
+    // Update the email (this resets emailVerification to false)
+    await account.updateEmail(email, password);
+
+    // Send verification email
+    // Note: URL can be empty for mobile apps - Appwrite will use default from console settings
+    const verificationUrl = process.env.EXPO_PUBLIC_EMAIL_VERIFICATION_URL || "";
+    try {
+      await account.createEmailVerification(verificationUrl);
+    } catch (verifyError: any) {
+      // Log but don't fail the update - email was updated successfully
+      // Verification email sending might fail due to URL configuration, but that's okay
+      console.warn("Failed to send verification email:", verifyError);
+    }
+
+    return {
+      success: true,
+    };
+  } catch (error: any) {
+    const errorMessage = error.message || "An error occurred";
+    const errorCode = error.code || error.response?.code;
+
+    // Check for duplicate email error
+    if (
+      errorCode === 409 ||
+      errorMessage.toLowerCase().includes("email_already_exists") ||
+      errorMessage.toLowerCase().includes("already exists") ||
+      errorMessage.toLowerCase().includes("duplicate") ||
+      errorMessage.toLowerCase().includes("email is already")
+    ) {
+      return {
+        success: false,
+        error: "This email address is already registered to another account",
+      };
+    }
+
+    // Handle invalid password
+    if (
+      errorCode === 401 ||
+      errorMessage.toLowerCase().includes("invalid credentials") ||
+      errorMessage.toLowerCase().includes("password")
+    ) {
+      return {
+        success: false,
+        error: "Incorrect password. Please try again.",
+      };
+    }
+
+    // Handle network errors
+    if (
+      errorMessage.toLowerCase().includes("network") ||
+      errorMessage.toLowerCase().includes("connection") ||
+      errorMessage.toLowerCase().includes("fetch")
+    ) {
+      return {
+        success: false,
+        error: "Connection error. Please check your internet and try again.",
+      };
+    }
+
+    return {
+      success: false,
+      error: errorMessage || "Failed to update email. Please try again.",
     };
   }
 }

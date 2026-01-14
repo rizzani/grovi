@@ -166,7 +166,9 @@ async function setupDatabase() {
     // Step 3: Create profiles attributes
     const profilesStringAttributes = [
       { key: "userId", size: 36, required: true },
-      { key: "name", size: 255, required: false },
+      { key: "firstName", size: 255, required: false },
+      { key: "lastName", size: 255, required: false },
+      { key: "name", size: 255, required: false }, // Kept for backward compatibility
       { key: "phone", size: 20, required: true },
       { key: "email", size: 255, required: true },
     ];
@@ -359,9 +361,154 @@ async function setupDatabase() {
       console.error(`  ✗ Failed to update permissions: ${error.message}`);
     }
 
+    // Step 10: Create audit_logs collection
+    const auditLogsCollectionId = "audit_logs";
+    let auditLogsCollection;
+    try {
+      auditLogsCollection = await appwriteRequest(
+        "GET",
+        `/databases/${databaseId}/collections/${auditLogsCollectionId}`
+      );
+      console.log(`✓ Collection '${auditLogsCollectionId}' already exists`);
+    } catch (error: any) {
+      if (error.code === 404) {
+        try {
+          auditLogsCollection = await appwriteRequest(
+            "POST",
+            `/databases/${databaseId}/collections`,
+            {
+              collectionId: auditLogsCollectionId,
+              name: "Audit Logs",
+              permissions: [
+                Permission.read(Role.users()),
+                Permission.write(Role.users()),
+              ], // Collection-level allows querying; document-level restricts access
+            }
+          );
+          console.log(`✓ Created collection '${auditLogsCollectionId}'`);
+        } catch (createError: any) {
+          console.error(`✗ Failed to create collection: ${createError.message}`);
+          throw createError;
+        }
+      } else {
+        throw error;
+      }
+    }
+
+    // Step 11: Create audit_logs attributes
+    const auditLogsStringAttributes = [
+      { key: "userId", size: 36, required: true },
+      { key: "eventType", size: 100, required: true },
+      { key: "metadata", size: 2000, required: false }, // JSON string
+      { key: "timestamp", size: 50, required: true }, // ISO 8601 format
+    ];
+
+    for (const attr of auditLogsStringAttributes) {
+      try {
+        await appwriteRequest(
+          "POST",
+          `/databases/${databaseId}/collections/${auditLogsCollectionId}/attributes/string`,
+          {
+            key: attr.key,
+            size: attr.size,
+            required: attr.required,
+          }
+        );
+        console.log(`  ✓ Created attribute '${attr.key}' (string)`);
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+      } catch (error: any) {
+        if (error.code === 409) {
+          console.log(`  - Attribute '${attr.key}' already exists`);
+        } else {
+          console.error(`  ✗ Failed to create attribute '${attr.key}': ${error.message}`);
+        }
+      }
+    }
+
+    // Note: createdAt is automatically handled by Appwrite, no need to create it
+
+    // Step 12: Create audit_logs indexes
+    try {
+      await appwriteRequest(
+        "POST",
+        `/databases/${databaseId}/collections/${auditLogsCollectionId}/indexes`,
+        {
+          key: "idx_userId",
+          type: "key",
+          attributes: ["userId"],
+          orders: ["ASC"],
+        }
+      );
+      console.log(`  ✓ Created index 'idx_userId' on audit_logs`);
+    } catch (error: any) {
+      if (error.code === 409) {
+        console.log(`  - Index 'idx_userId' already exists`);
+      } else {
+        console.error(`  ✗ Failed to create index: ${error.message}`);
+      }
+    }
+
+    try {
+      await appwriteRequest(
+        "POST",
+        `/databases/${databaseId}/collections/${auditLogsCollectionId}/indexes`,
+        {
+          key: "idx_eventType",
+          type: "key",
+          attributes: ["eventType"],
+          orders: ["ASC"],
+        }
+      );
+      console.log(`  ✓ Created index 'idx_eventType' on audit_logs`);
+    } catch (error: any) {
+      if (error.code === 409) {
+        console.log(`  - Index 'idx_eventType' already exists`);
+      } else {
+        console.error(`  ✗ Failed to create index: ${error.message}`);
+      }
+    }
+
+    try {
+      await appwriteRequest(
+        "POST",
+        `/databases/${databaseId}/collections/${auditLogsCollectionId}/indexes`,
+        {
+          key: "idx_timestamp",
+          type: "key",
+          attributes: ["timestamp"],
+          orders: ["DESC"],
+        }
+      );
+      console.log(`  ✓ Created index 'idx_timestamp' on audit_logs`);
+    } catch (error: any) {
+      if (error.code === 409) {
+        console.log(`  - Index 'idx_timestamp' already exists`);
+      } else {
+        console.error(`  ✗ Failed to create index: ${error.message}`);
+      }
+    }
+
+    // Step 13: Set audit_logs permissions
+    try {
+      await appwriteRequest(
+        "PUT",
+        `/databases/${databaseId}/collections/${auditLogsCollectionId}`,
+        {
+          name: "Audit Logs",
+          permissions: [
+            Permission.read(Role.users()),
+            Permission.write(Role.users()),
+          ], // Collection-level allows querying; document-level restricts access
+        }
+      );
+      console.log(`  ✓ Updated permissions for '${auditLogsCollectionId}'`);
+    } catch (error: any) {
+      console.error(`  ✗ Failed to update permissions: ${error.message}`);
+    }
+
     console.log("\n✅ Database setup completed successfully!");
     console.log(`\nDatabase ID: ${databaseId}`);
-    console.log(`Collections: ${profilesCollectionId}, ${addressesCollectionId}`);
+    console.log(`Collections: ${profilesCollectionId}, ${addressesCollectionId}, ${auditLogsCollectionId}`);
     console.log("\nNote: Make sure to set APPWRITE_DATABASE_ID in your app configuration.");
   } catch (error: any) {
     console.error("\n❌ Database setup failed:", error.message);
