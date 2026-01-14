@@ -214,6 +214,12 @@ export default function AccountScreen() {
           <Text style={styles.sectionTitle}>Settings</Text>
           <View style={styles.menuGroup}>
             <MenuItem
+              icon="heart-outline"
+              title="Preferences"
+              subtitle="Dietary & shopping categories"
+              onPress={() => router.push("/preferences")}
+            />
+            <MenuItem
               icon="notifications-outline"
               title="Notifications"
               subtitle="Manage notifications"

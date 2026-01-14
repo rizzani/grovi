@@ -12,7 +12,8 @@ export type AuditEventType =
   | "address.created"
   | "address.updated"
   | "address.deleted"
-  | "address.default_changed";
+  | "address.default_changed"
+  | "preferences.updated";
 
 export interface AuditLogMetadata {
   [key: string]: any;
@@ -259,6 +260,24 @@ export async function logAddressDefaultChanged(
     metadata: {
       addressId,
       previousAddressId: previousAddressId || null,
+    },
+  });
+}
+
+/**
+ * Logs a preferences update event
+ * @param userId - User ID
+ * @param changes - Object containing changed preference fields
+ */
+export async function logPreferencesUpdated(
+  userId: string,
+  changes: Record<string, any>
+): Promise<void> {
+  await createAuditLog({
+    userId,
+    eventType: "preferences.updated",
+    metadata: {
+      changes: JSON.stringify(changes),
     },
   });
 }
