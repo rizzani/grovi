@@ -223,9 +223,7 @@ export default function AccountScreen() {
               icon="notifications-outline"
               title="Notifications"
               subtitle="Manage notifications"
-              onPress={() => {
-                Alert.alert("Coming Soon", "Notification settings will be available soon.");
-              }}
+              onPress={() => router.push("/notification-preferences")}
             />
             <MenuItem
               icon="lock-closed-outline"

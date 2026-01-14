@@ -13,7 +13,9 @@ export type AuditEventType =
   | "address.updated"
   | "address.deleted"
   | "address.default_changed"
-  | "preferences.updated";
+  | "preferences.updated"
+  | "notifications.preferences_updated"
+  | "notifications.push_token_updated";
 
 export interface AuditLogMetadata {
   [key: string]: any;
@@ -278,6 +280,42 @@ export async function logPreferencesUpdated(
     eventType: "preferences.updated",
     metadata: {
       changes: JSON.stringify(changes),
+    },
+  });
+}
+
+/**
+ * Logs a notification preferences update event
+ * @param userId - User ID
+ * @param changes - Object containing changed notification preference fields
+ */
+export async function logNotificationPreferencesUpdated(
+  userId: string,
+  changes: Record<string, any>
+): Promise<void> {
+  await createAuditLog({
+    userId,
+    eventType: "notifications.preferences_updated",
+    metadata: {
+      changes: JSON.stringify(changes),
+    },
+  });
+}
+
+/**
+ * Logs a push token update event
+ * @param userId - User ID
+ * @param pushToken - New push token (or null if cleared)
+ */
+export async function logPushTokenUpdated(
+  userId: string,
+  pushToken: string | null
+): Promise<void> {
+  await createAuditLog({
+    userId,
+    eventType: "notifications.push_token_updated",
+    metadata: {
+      pushToken: pushToken || null,
     },
   });
 }

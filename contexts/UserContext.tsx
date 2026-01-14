@@ -3,6 +3,8 @@ import { account } from "../lib/appwrite-client";
 import { AppwriteException } from "appwrite";
 import { logout } from "../lib/auth-service";
 import { logEmailVerified } from "../lib/audit-service";
+import { getNotificationPreferences } from "../lib/notification-preferences-service";
+import { initializePushNotifications, setupNotificationListeners } from "../lib/push-notification-service";
 
 // User type based on Appwrite User model
 export interface User {
@@ -201,6 +203,48 @@ export function UserProvider({ children }: UserProviderProps) {
       setIsLoading(false);
     });
   }, [refreshSession]);
+
+  // Initialize push notifications when user is authenticated
+  useEffect(() => {
+    if (!userId) {
+      return;
+    }
+
+    let notificationListeners: { remove: () => void } | null = null;
+
+    const initNotifications = async () => {
+      try {
+        // Load notification preferences
+        const preferences = await getNotificationPreferences(userId);
+        
+        if (preferences && preferences.pushEnabled) {
+          // Initialize push notifications if enabled
+          await initializePushNotifications(userId, preferences.pushEnabled);
+          
+          // Set up notification listeners
+          notificationListeners = setupNotificationListeners((notification) => {
+            if (__DEV__) {
+              console.log("[UserContext] Notification received:", notification);
+            }
+          });
+        }
+      } catch (error) {
+        // Non-blocking - don't break app if notification setup fails
+        if (__DEV__) {
+          console.warn("[UserContext] Failed to initialize notifications:", error);
+        }
+      }
+    };
+
+    initNotifications();
+
+    // Cleanup listeners on unmount or when user changes
+    return () => {
+      if (notificationListeners) {
+        notificationListeners.remove();
+      }
+    };
+  }, [userId]);
 
   const value: UserContextType = {
     user,
