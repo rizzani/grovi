@@ -274,8 +274,13 @@ async function setupDatabase() {
     // Step 7: Create addresses attributes
     const addressesStringAttributes = [
       { key: "userId", size: 36, required: true },
-      { key: "parish", size: 100, required: true },
-      { key: "details", size: 500, required: true },
+      { key: "label", size: 30, required: true }, // Address label (e.g. Home, Work)
+      { key: "parish", size: 100, required: true }, // Jamaica parish
+      { key: "community", size: 60, required: true }, // Community/Area
+      { key: "street", size: 60, required: false }, // Street/Scheme/Road (optional)
+      { key: "houseDetails", size: 30, required: false }, // House/Lot/Apt (optional)
+      { key: "landmarkDirections", size: 240, required: true }, // Landmark/Directions (critical)
+      { key: "contactPhone", size: 20, required: false }, // Contact phone (optional)
     ];
 
     for (const attr of addressesStringAttributes) {
@@ -289,7 +294,7 @@ async function setupDatabase() {
             required: attr.required,
           }
         );
-        console.log(`  ✓ Created attribute '${attr.key}' (string)`);
+        console.log(`  ✓ Created attribute '${attr.key}' (string, required: ${attr.required})`);
         await new Promise((resolve) => setTimeout(resolve, 1000));
       } catch (error: any) {
         if (error.code === 409) {
