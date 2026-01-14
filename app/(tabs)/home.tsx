@@ -1,10 +1,13 @@
 import { useState, useEffect, useCallback } from "react";
-import { Text, View, StyleSheet, ScrollView, TouchableOpacity, TextInput, ActivityIndicator } from "react-native";
+import { Text, View, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect } from "expo-router";
 import { useUser } from "../../contexts/UserContext";
 import { getPreferences } from "../../lib/preferences-service";
+import SearchBar from "../../components/SearchBar";
+import { useSearch } from "../../contexts/SearchContext";
+import { getSearchSuggestions } from "../../lib/search-service";
 
 // Section Header Component
 function SectionHeader({ 
@@ -33,8 +36,11 @@ function SectionHeader({
 export default function HomeScreen() {
   const deliveryAddress = "6382 East Greater Parkway";
   const { userId } = useUser();
+  const { performSearch } = useSearch();
   const [categoryPreferences, setCategoryPreferences] = useState<string[]>([]);
   const [isLoadingPreferences, setIsLoadingPreferences] = useState(true);
+  const [searchSuggestions, setSearchSuggestions] = useState<any[]>([]);
+  const [searchQuery, setSearchQuery] = useState("");
 
   // Load preferences when screen is focused
   useFocusEffect(
@@ -64,6 +70,29 @@ export default function HomeScreen() {
     }
   };
 
+  // Load search suggestions as user types
+  useEffect(() => {
+    const loadSuggestions = async () => {
+      if (searchQuery.trim().length > 0) {
+        const suggestions = await getSearchSuggestions(searchQuery);
+        setSearchSuggestions(suggestions);
+      } else {
+        setSearchSuggestions([]);
+      }
+    };
+
+    const timeoutId = setTimeout(loadSuggestions, 300); // Debounce
+    return () => clearTimeout(timeoutId);
+  }, [searchQuery]);
+
+  const handleSearch = (query: string) => {
+    performSearch(query);
+  };
+
+  const handleSuggestionSelect = (suggestion: any) => {
+    performSearch(suggestion.text);
+  };
+
   return (
     <SafeAreaView style={styles.container} edges={["top", "bottom"]}>
       <ScrollView 
@@ -84,12 +113,14 @@ export default function HomeScreen() {
         </View>
 
         {/* Search Bar */}
-        <View style={styles.searchContainer}>
-          <Ionicons name="search" size={20} color="#6B7280" style={styles.searchIcon} />
-          <TextInput
-            style={styles.searchInput}
+        <View style={styles.searchWrapper}>
+          <SearchBar
             placeholder="Search Product"
-            placeholderTextColor="#9CA3AF"
+            onSearch={handleSearch}
+            onSuggestionSelect={handleSuggestionSelect}
+            suggestions={searchSuggestions}
+            showSuggestions={true}
+            onChangeText={setSearchQuery}
           />
         </View>
 
@@ -157,7 +188,7 @@ export default function HomeScreen() {
           contentContainerStyle={styles.categoryFiltersContent}
         >
           <TouchableOpacity style={styles.categoryFilter}>
-            <Ionicons name="apple" size={20} color="#FFFFFF" />
+            <Ionicons name="nutrition-outline" size={20} color="#FFFFFF" />
             <Text style={styles.categoryFilterText}>Fruits</Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.categoryFilter}>
@@ -351,25 +382,8 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     flex: 1,
   },
-  searchContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#F9FAFB",
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+  searchWrapper: {
     marginBottom: 20,
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-  },
-  searchIcon: {
-    marginRight: 12,
-  },
-  searchInput: {
-    flex: 1,
-    fontSize: 16,
-    color: "#111827",
-    padding: 0,
   },
   promoBanner: {
     backgroundColor: "#FFFFFF",
