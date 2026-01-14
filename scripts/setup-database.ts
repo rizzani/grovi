@@ -656,9 +656,142 @@ async function setupDatabase() {
       console.error(`  ✗ Failed to update permissions: ${error.message}`);
     }
 
+    // Step 18: Create notification_preferences collection
+    const notificationPreferencesCollectionId = "notification_preferences";
+    let notificationPreferencesCollection;
+    try {
+      notificationPreferencesCollection = await appwriteRequest(
+        "GET",
+        `/databases/${databaseId}/collections/${notificationPreferencesCollectionId}`
+      );
+      console.log(`✓ Collection '${notificationPreferencesCollectionId}' already exists`);
+    } catch (error: any) {
+      if (error.code === 404) {
+        try {
+          notificationPreferencesCollection = await appwriteRequest(
+            "POST",
+            `/databases/${databaseId}/collections`,
+            {
+              collectionId: notificationPreferencesCollectionId,
+              name: "Notification Preferences",
+              permissions: [
+                Permission.read(Role.users()),
+                Permission.write(Role.users()),
+              ], // Collection-level allows querying; document-level restricts access
+            }
+          );
+          console.log(`✓ Created collection '${notificationPreferencesCollectionId}'`);
+        } catch (createError: any) {
+          console.error(`✗ Failed to create collection: ${createError.message}`);
+          throw createError;
+        }
+      } else {
+        throw error;
+      }
+    }
+
+    // Step 19: Create notification_preferences attributes
+    const notificationPreferencesStringAttributes = [
+      { key: "userId", size: 36, required: true },
+      { key: "pushToken", size: 500, required: false }, // Expo push token
+    ];
+
+    for (const attr of notificationPreferencesStringAttributes) {
+      try {
+        await appwriteRequest(
+          "POST",
+          `/databases/${databaseId}/collections/${notificationPreferencesCollectionId}/attributes/string`,
+          {
+            key: attr.key,
+            size: attr.size,
+            required: attr.required,
+          }
+        );
+        console.log(`  ✓ Created attribute '${attr.key}' (string, required: ${attr.required})`);
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+      } catch (error: any) {
+        if (error.code === 409) {
+          console.log(`  - Attribute '${attr.key}' already exists`);
+        } else {
+          console.error(`  ✗ Failed to create attribute '${attr.key}': ${error.message}`);
+        }
+      }
+    }
+
+    // Create boolean attributes for notification preferences
+    const notificationPreferencesBooleanAttributes = [
+      { key: "orderUpdatesEnabled", required: true },
+      { key: "promotionsEnabled", required: true },
+      { key: "pushEnabled", required: true },
+      { key: "emailEnabled", required: true },
+      { key: "smsEnabled", required: true },
+    ];
+
+    for (const attr of notificationPreferencesBooleanAttributes) {
+      try {
+        await appwriteRequest(
+          "POST",
+          `/databases/${databaseId}/collections/${notificationPreferencesCollectionId}/attributes/boolean`,
+          {
+            key: attr.key,
+            required: attr.required,
+          }
+        );
+        console.log(`  ✓ Created attribute '${attr.key}' (boolean, required: ${attr.required})`);
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+      } catch (error: any) {
+        if (error.code === 409) {
+          console.log(`  - Attribute '${attr.key}' already exists`);
+        } else {
+          console.error(`  ✗ Failed to create attribute '${attr.key}': ${error.message}`);
+        }
+      }
+    }
+
+    // Note: createdAt and updatedAt are automatically handled by Appwrite, no need to create them
+
+    // Step 20: Create notification_preferences indexes
+    try {
+      await appwriteRequest(
+        "POST",
+        `/databases/${databaseId}/collections/${notificationPreferencesCollectionId}/indexes`,
+        {
+          key: "idx_userId",
+          type: "key",
+          attributes: ["userId"],
+          orders: ["ASC"],
+        }
+      );
+      console.log(`  ✓ Created index 'idx_userId' on notification_preferences`);
+    } catch (error: any) {
+      if (error.code === 409) {
+        console.log(`  - Index 'idx_userId' already exists`);
+      } else {
+        console.error(`  ✗ Failed to create index: ${error.message}`);
+      }
+    }
+
+    // Step 21: Set notification_preferences permissions
+    try {
+      await appwriteRequest(
+        "PUT",
+        `/databases/${databaseId}/collections/${notificationPreferencesCollectionId}`,
+        {
+          name: "Notification Preferences",
+          permissions: [
+            Permission.read(Role.users()),
+            Permission.write(Role.users()),
+          ], // Collection-level allows querying; document-level restricts access
+        }
+      );
+      console.log(`  ✓ Updated permissions for '${notificationPreferencesCollectionId}'`);
+    } catch (error: any) {
+      console.error(`  ✗ Failed to update permissions: ${error.message}`);
+    }
+
     console.log("\n✅ Database setup completed successfully!");
     console.log(`\nDatabase ID: ${databaseId}`);
-    console.log(`Collections: ${profilesCollectionId}, ${addressesCollectionId}, ${auditLogsCollectionId}, ${userPreferencesCollectionId}`);
+    console.log(`Collections: ${profilesCollectionId}, ${addressesCollectionId}, ${auditLogsCollectionId}, ${userPreferencesCollectionId}, ${notificationPreferencesCollectionId}`);
     console.log("\nNote: Make sure to set APPWRITE_DATABASE_ID in your app configuration.");
   } catch (error: any) {
     console.error("\n❌ Database setup failed:", error.message);
