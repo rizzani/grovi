@@ -1,5 +1,11 @@
 import { databases, databaseId } from "./appwrite-client";
 import { ID, Query, Permission, Role } from "appwrite";
+import {
+  logAddressCreated,
+  logAddressUpdated,
+  logAddressDeleted,
+  logAddressDefaultChanged,
+} from "./audit-service";
 
 const PROFILES_COLLECTION_ID = "profiles";
 const ADDRESSES_COLLECTION_ID = "addresses";
@@ -18,8 +24,13 @@ export interface Profile {
 export interface Address {
   $id: string;
   userId: string;
+  label: string;
   parish: string;
-  details: string;
+  community: string;
+  street?: string;
+  houseDetails?: string;
+  landmarkDirections: string;
+  contactPhone?: string;
   default: boolean;
   createdAt: string;
 }
@@ -35,15 +46,25 @@ export interface CreateProfileParams {
 
 export interface CreateAddressParams {
   userId: string;
+  label: string;
   parish: string;
-  details: string;
+  community: string;
+  street?: string;
+  houseDetails?: string;
+  landmarkDirections: string;
+  contactPhone?: string;
   isDefault: boolean;
 }
 
 export interface UpdateAddressParams {
   addressId: string;
+  label?: string;
   parish?: string;
-  details?: string;
+  community?: string;
+  street?: string;
+  houseDetails?: string;
+  landmarkDirections?: string;
+  contactPhone?: string;
   isDefault?: boolean;
 }
 
@@ -216,10 +237,30 @@ export async function createAddress(
   params: CreateAddressParams
 ): Promise<Address> {
   try {
-    const { userId, parish, details, isDefault } = params;
+    const { 
+      userId, 
+      label,
+      parish,
+      community,
+      street,
+      houseDetails,
+      landmarkDirections,
+      contactPhone,
+      isDefault 
+    } = params;
+
+    // Check if this is the first address - if so, automatically set as default
+    const existingAddresses = await databases.listDocuments(
+      databaseId,
+      ADDRESSES_COLLECTION_ID,
+      [Query.equal("userId", userId)]
+    );
+    
+    const isFirstAddress = existingAddresses.documents.length === 0;
+    const finalIsDefault = isFirstAddress ? true : isDefault;
 
     // If this is set as default, unset other default addresses
-    if (isDefault) {
+    if (finalIsDefault) {
       await unsetDefaultAddresses(userId);
     }
 
@@ -231,15 +272,32 @@ export async function createAddress(
       ID.unique(),
       {
         userId,
+        label,
         parish,
-        details,
-        default: isDefault,
+        community,
+        street: street || null,
+        houseDetails: houseDetails || null,
+        landmarkDirections,
+        contactPhone: contactPhone || null,
+        default: finalIsDefault,
       },
       [
         Permission.read(Role.user(userId)),
         Permission.write(Role.user(userId)),
       ]
     );
+
+    // Log audit event (non-blocking)
+    logAddressCreated(userId, newAddress.$id, label).catch((error) => {
+      console.warn("Failed to log address creation:", error);
+    });
+
+    // If this was auto-set as default, log the change
+    if (isFirstAddress) {
+      logAddressDefaultChanged(userId, newAddress.$id, undefined).catch((error) => {
+        console.warn("Failed to log auto-default address change:", error);
+      });
+    }
 
     return newAddress as Address;
   } catch (error: any) {
@@ -252,17 +310,31 @@ export async function createAddress(
 /**
  * Retrieves all addresses for a user
  * @param userId - User ID
- * @returns Promise with array of addresses
+ * @returns Promise with array of addresses, sorted by default first, then by creation date
  */
 export async function getAddresses(userId: string): Promise<Address[]> {
   try {
     const result = await databases.listDocuments(
       databaseId,
       ADDRESSES_COLLECTION_ID,
-      [Query.equal("userId", userId)]
+      [Query.equal("userId", userId), Query.orderDesc("default")]
     );
 
-    return result.documents as Address[];
+    // Sort by default first, then by creation date (most recent first)
+    // Note: Appwrite uses $createdAt internally, but we can sort in JavaScript
+    const addresses = result.documents as Address[];
+    addresses.sort((a, b) => {
+      // First sort by default (true first)
+      if (a.default !== b.default) {
+        return a.default ? -1 : 1;
+      }
+      // Then sort by creation date (most recent first)
+      const dateA = new Date(a.createdAt).getTime();
+      const dateB = new Date(b.createdAt).getTime();
+      return dateB - dateA;
+    });
+
+    return addresses;
   } catch (error: any) {
     const errorMessage = error.message || "Failed to retrieve addresses";
     console.error("Address retrieval error:", errorMessage);
@@ -279,7 +351,17 @@ export async function updateAddress(
   params: UpdateAddressParams
 ): Promise<Address> {
   try {
-    const { addressId, parish, details, isDefault } = params;
+    const { 
+      addressId, 
+      label,
+      parish,
+      community,
+      street,
+      houseDetails,
+      landmarkDirections,
+      contactPhone,
+      isDefault 
+    } = params;
 
     // Get current address to check userId
     const currentAddress = await databases.getDocument(
@@ -294,8 +376,13 @@ export async function updateAddress(
     }
 
     const updateData: any = {};
+    if (label !== undefined) updateData.label = label;
     if (parish !== undefined) updateData.parish = parish;
-    if (details !== undefined) updateData.details = details;
+    if (community !== undefined) updateData.community = community;
+    if (street !== undefined) updateData.street = street || null;
+    if (houseDetails !== undefined) updateData.houseDetails = houseDetails || null;
+    if (landmarkDirections !== undefined) updateData.landmarkDirections = landmarkDirections;
+    if (contactPhone !== undefined) updateData.contactPhone = contactPhone || null;
     if (isDefault !== undefined) updateData.default = isDefault;
 
     const updatedAddress = await databases.updateDocument(
@@ -304,6 +391,33 @@ export async function updateAddress(
       addressId,
       updateData
     );
+
+    // Log audit event (non-blocking)
+    logAddressUpdated(currentAddress.userId, addressId, updateData).catch((error) => {
+      console.warn("Failed to log address update:", error);
+    });
+
+    // If default status changed, log separately
+    if (isDefault === true && !currentAddress.default) {
+      // Find previous default address
+      const previousDefaults = await databases.listDocuments(
+        databaseId,
+        ADDRESSES_COLLECTION_ID,
+        [Query.equal("userId", currentAddress.userId), Query.equal("default", true), Query.limit(1)]
+      ).catch(() => ({ documents: [] }));
+      
+      const previousDefaultId = previousDefaults.documents.find(
+        (addr) => addr.$id !== addressId
+      )?.$id;
+
+      logAddressDefaultChanged(
+        currentAddress.userId,
+        addressId,
+        previousDefaultId
+      ).catch((error) => {
+        console.warn("Failed to log default address change:", error);
+      });
+    }
 
     return updatedAddress as Address;
   } catch (error: any) {
@@ -315,16 +429,86 @@ export async function updateAddress(
 
 /**
  * Deletes an address
+ * If the deleted address was the default, sets the most recent address as default
  * @param addressId - Address document ID
  * @returns Promise that resolves when address is deleted
  */
 export async function deleteAddress(addressId: string): Promise<void> {
   try {
+    // Get the address to check if it's default and get userId
+    const address = await databases.getDocument(
+      databaseId,
+      ADDRESSES_COLLECTION_ID,
+      addressId
+    ) as Address;
+
+    const wasDefault = address.default;
+    const userId = address.userId;
+
+    // Delete the address
     await databases.deleteDocument(
       databaseId,
       ADDRESSES_COLLECTION_ID,
       addressId
     );
+
+    // Log audit event (non-blocking)
+    logAddressDeleted(userId, addressId).catch((error) => {
+      console.warn("Failed to log address deletion:", error);
+    });
+
+    // After deletion, check remaining addresses
+    try {
+      const remainingAddressesResult = await databases.listDocuments(
+        databaseId,
+        ADDRESSES_COLLECTION_ID,
+        [Query.equal("userId", userId)]
+      );
+
+      if (remainingAddressesResult.documents.length > 0) {
+        // If only one address remains, automatically set it as default
+        if (remainingAddressesResult.documents.length === 1) {
+          const remainingAddress = remainingAddressesResult.documents[0] as Address;
+          if (!remainingAddress.default) {
+            await databases.updateDocument(
+              databaseId,
+              ADDRESSES_COLLECTION_ID,
+              remainingAddress.$id,
+              { default: true }
+            );
+
+            // Log default change (non-blocking)
+            logAddressDefaultChanged(userId, remainingAddress.$id, addressId).catch((error) => {
+              console.warn("Failed to log auto-default address change:", error);
+            });
+          }
+        } else if (wasDefault) {
+          // If deleted address was default and multiple addresses remain, set most recent as default
+          const remainingAddresses = remainingAddressesResult.documents as Address[];
+          remainingAddresses.sort((a, b) => {
+            const dateA = new Date(a.createdAt).getTime();
+            const dateB = new Date(b.createdAt).getTime();
+            return dateB - dateA;
+          });
+
+          const mostRecentAddress = remainingAddresses[0];
+          await databases.updateDocument(
+            databaseId,
+            ADDRESSES_COLLECTION_ID,
+            mostRecentAddress.$id,
+            { default: true }
+          );
+
+          // Log default change (non-blocking)
+          logAddressDefaultChanged(userId, mostRecentAddress.$id, addressId).catch((error) => {
+            console.warn("Failed to log default address change:", error);
+          });
+        }
+      }
+    } catch (error: any) {
+      // Log but don't throw - deletion succeeded, default update is secondary
+      console.warn("Failed to set new default address after deletion:", error.message);
+    }
   } catch (error: any) {
     const errorMessage = error.message || "Failed to delete address";
     console.error("Address deletion error:", errorMessage);
@@ -347,6 +531,17 @@ export async function setDefaultAddress(
     // Unset all other default addresses
     await unsetDefaultAddresses(userId);
 
+    // Get previous default address for audit log
+    const previousDefaults = await databases.listDocuments(
+      databaseId,
+      ADDRESSES_COLLECTION_ID,
+      [Query.equal("userId", userId), Query.equal("default", true), Query.limit(1)]
+    ).catch(() => ({ documents: [] }));
+
+    const previousDefaultId = previousDefaults.documents.find(
+      (addr) => addr.$id !== addressId
+    )?.$id;
+
     // Set this address as default
     const updatedAddress = await databases.updateDocument(
       databaseId,
@@ -356,6 +551,11 @@ export async function setDefaultAddress(
         default: true,
       }
     );
+
+    // Log audit event (non-blocking)
+    logAddressDefaultChanged(userId, addressId, previousDefaultId).catch((error) => {
+      console.warn("Failed to log default address change:", error);
+    });
 
     return updatedAddress as Address;
   } catch (error: any) {

@@ -122,13 +122,6 @@ export default function AccountScreen() {
     );
   };
 
-  const getVerificationStatus = () => {
-    const verified = [];
-    if (user?.emailVerification) verified.push("Email");
-    if (user?.phoneVerification) verified.push("Phone");
-    return verified;
-  };
-
   if (userLoading) {
     return (
       <SafeAreaView style={styles.container} edges={["top", "bottom"]}>
@@ -156,8 +149,6 @@ export default function AccountScreen() {
     );
   }
 
-  const verifiedItems = getVerificationStatus();
-
   return (
     <SafeAreaView style={styles.container} edges={["top", "bottom"]}>
       <ScrollView
@@ -167,24 +158,6 @@ export default function AccountScreen() {
       >
         {/* Profile Header */}
         <ProfileHeader name={user.name} email={user.email} />
-
-        {/* Verification Status */}
-        {verifiedItems.length > 0 && (
-          <View style={styles.verificationContainer}>
-            <View style={styles.verificationHeader}>
-              <Ionicons name="shield-checkmark" size={18} color="#10B981" />
-              <Text style={styles.verificationTitle}>Verified</Text>
-            </View>
-            <View style={styles.verificationBadges}>
-              {verifiedItems.map((item) => (
-                <View key={item} style={styles.verificationBadge}>
-                  <Ionicons name="checkmark-circle" size={16} color="#10B981" />
-                  <Text style={styles.verificationBadgeText}>{item}</Text>
-                </View>
-              ))}
-            </View>
-          </View>
-        )}
 
         {/* Account Information */}
         <View style={styles.section}>
@@ -268,9 +241,7 @@ export default function AccountScreen() {
               icon="location-outline"
               title="Delivery Addresses"
               subtitle="Manage addresses"
-              onPress={() => {
-                Alert.alert("Coming Soon", "Address management will be available soon.");
-              }}
+              onPress={() => router.push("/addresses")}
             />
           </View>
         </View>
@@ -428,45 +399,6 @@ const styles = StyleSheet.create({
   profileEmail: {
     fontSize: 16,
     color: "#6B7280",
-  },
-  verificationContainer: {
-    backgroundColor: "#FFFFFF",
-    marginTop: 16,
-    marginHorizontal: 16,
-    padding: 16,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-  },
-  verificationHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    marginBottom: 12,
-  },
-  verificationTitle: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#111827",
-  },
-  verificationBadges: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-  },
-  verificationBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#F0FDF4",
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 16,
-    gap: 6,
-  },
-  verificationBadgeText: {
-    fontSize: 14,
-    fontWeight: "500",
-    color: "#10B981",
   },
   section: {
     marginTop: 24,

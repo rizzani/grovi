@@ -8,7 +8,11 @@ export type AuditEventType =
   | "profile.phone_change_requested"
   | "profile.phone_verified"
   | "profile.email_change_requested"
-  | "profile.email_verified";
+  | "profile.email_verified"
+  | "address.created"
+  | "address.updated"
+  | "address.deleted"
+  | "address.default_changed";
 
 export interface AuditLogMetadata {
   [key: string]: any;
@@ -174,6 +178,87 @@ export async function logEmailVerified(
     metadata: {
       field: "email",
       newValue: email,
+    },
+  });
+}
+
+/**
+ * Logs an address creation event
+ * @param userId - User ID
+ * @param addressId - Address document ID
+ * @param label - Address label (if any)
+ */
+export async function logAddressCreated(
+  userId: string,
+  addressId: string,
+  label?: string
+): Promise<void> {
+  await createAuditLog({
+    userId,
+    eventType: "address.created",
+    metadata: {
+      addressId,
+      label: label || null,
+    },
+  });
+}
+
+/**
+ * Logs an address update event
+ * @param userId - User ID
+ * @param addressId - Address document ID
+ * @param changes - Object containing changed fields
+ */
+export async function logAddressUpdated(
+  userId: string,
+  addressId: string,
+  changes: Record<string, any>
+): Promise<void> {
+  await createAuditLog({
+    userId,
+    eventType: "address.updated",
+    metadata: {
+      addressId,
+      changes: JSON.stringify(changes),
+    },
+  });
+}
+
+/**
+ * Logs an address deletion event
+ * @param userId - User ID
+ * @param addressId - Address document ID
+ */
+export async function logAddressDeleted(
+  userId: string,
+  addressId: string
+): Promise<void> {
+  await createAuditLog({
+    userId,
+    eventType: "address.deleted",
+    metadata: {
+      addressId,
+    },
+  });
+}
+
+/**
+ * Logs a default address change event
+ * @param userId - User ID
+ * @param addressId - Address document ID that was set as default
+ * @param previousAddressId - Previous default address ID (if any)
+ */
+export async function logAddressDefaultChanged(
+  userId: string,
+  addressId: string,
+  previousAddressId?: string
+): Promise<void> {
+  await createAuditLog({
+    userId,
+    eventType: "address.default_changed",
+    metadata: {
+      addressId,
+      previousAddressId: previousAddressId || null,
     },
   });
 }
