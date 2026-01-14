@@ -1,6 +1,10 @@
-import { Text, View, StyleSheet, ScrollView, TouchableOpacity, TextInput } from "react-native";
+import { useState, useEffect, useCallback } from "react";
+import { Text, View, StyleSheet, ScrollView, TouchableOpacity, TextInput, ActivityIndicator } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
+import { useFocusEffect } from "expo-router";
+import { useUser } from "../../contexts/UserContext";
+import { getPreferences } from "../../lib/preferences-service";
 
 // Section Header Component
 function SectionHeader({ 
@@ -28,6 +32,37 @@ function SectionHeader({
 
 export default function HomeScreen() {
   const deliveryAddress = "6382 East Greater Parkway";
+  const { userId } = useUser();
+  const [categoryPreferences, setCategoryPreferences] = useState<string[]>([]);
+  const [isLoadingPreferences, setIsLoadingPreferences] = useState(true);
+
+  // Load preferences when screen is focused
+  useFocusEffect(
+    useCallback(() => {
+      loadPreferences();
+    }, [userId])
+  );
+
+  const loadPreferences = async () => {
+    if (!userId) {
+      setIsLoadingPreferences(false);
+      return;
+    }
+
+    try {
+      const preferences = await getPreferences(userId);
+      if (preferences && preferences.categoryPreferences) {
+        setCategoryPreferences(preferences.categoryPreferences);
+      } else {
+        setCategoryPreferences([]);
+      }
+    } catch (error) {
+      console.error("Failed to load preferences:", error);
+      setCategoryPreferences([]);
+    } finally {
+      setIsLoadingPreferences(false);
+    }
+  };
 
   return (
     <SafeAreaView style={styles.container} edges={["top", "bottom"]}>
@@ -71,6 +106,48 @@ export default function HomeScreen() {
             {/* Placeholder for promotional image */}
           </View>
         </View>
+
+        {/* Recommended for You Section - Only show if preferences are set */}
+        {!isLoadingPreferences && categoryPreferences.length > 0 && (
+          <View style={styles.section}>
+            <SectionHeader title="Recommended for You" showSeeAll />
+            <View style={styles.recommendedCard}>
+              <View style={styles.recommendedContent}>
+                <Ionicons name="sparkles" size={24} color="#10B981" />
+                <Text style={styles.recommendedTitle}>Personalized for You</Text>
+                <Text style={styles.recommendedDescription}>
+                  Based on your preferences: {categoryPreferences.slice(0, 3).join(", ")}
+                  {categoryPreferences.length > 3 && ` +${categoryPreferences.length - 3} more`}
+                </Text>
+                <Text style={styles.recommendedSubtext}>
+                  We're curating products from your favorite categories
+                </Text>
+              </View>
+            </View>
+            <ScrollView 
+              horizontal 
+              showsHorizontalScrollIndicator={false}
+              style={styles.horizontalScroll}
+              contentContainerStyle={styles.horizontalScrollContent}
+            >
+              <View style={styles.productCard}>
+                <View style={styles.productImagePlaceholder} />
+                <Text style={styles.productName}>Recommended Item</Text>
+                <Text style={styles.productPrice}>Based on your preferences</Text>
+              </View>
+              <View style={styles.productCard}>
+                <View style={styles.productImagePlaceholder} />
+                <Text style={styles.productName}>Recommended Item</Text>
+                <Text style={styles.productPrice}>Based on your preferences</Text>
+              </View>
+              <View style={styles.productCard}>
+                <View style={styles.productImagePlaceholder} />
+                <Text style={styles.productName}>Recommended Item</Text>
+                <Text style={styles.productPrice}>Based on your preferences</Text>
+              </View>
+            </ScrollView>
+          </View>
+        )}
 
         {/* Quick Category Filters */}
         <ScrollView 
@@ -483,5 +560,33 @@ const styles = StyleSheet.create({
   },
   bottomSpacing: {
     height: 20,
+  },
+  recommendedCard: {
+    backgroundColor: "#F0FDF4",
+    borderRadius: 16,
+    padding: 20,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: "#10B981",
+  },
+  recommendedContent: {
+    gap: 8,
+  },
+  recommendedTitle: {
+    fontSize: 20,
+    fontWeight: "700",
+    color: "#111827",
+    marginTop: 4,
+  },
+  recommendedDescription: {
+    fontSize: 16,
+    color: "#374151",
+    lineHeight: 22,
+    marginTop: 4,
+  },
+  recommendedSubtext: {
+    fontSize: 14,
+    color: "#6B7280",
+    marginTop: 4,
   },
 });

@@ -511,9 +511,154 @@ async function setupDatabase() {
       console.error(`  ✗ Failed to update permissions: ${error.message}`);
     }
 
+    // Step 14: Create user_preferences collection
+    const userPreferencesCollectionId = "user_preferences";
+    let userPreferencesCollection;
+    try {
+      userPreferencesCollection = await appwriteRequest(
+        "GET",
+        `/databases/${databaseId}/collections/${userPreferencesCollectionId}`
+      );
+      console.log(`✓ Collection '${userPreferencesCollectionId}' already exists`);
+    } catch (error: any) {
+      if (error.code === 404) {
+        try {
+          userPreferencesCollection = await appwriteRequest(
+            "POST",
+            `/databases/${databaseId}/collections`,
+            {
+              collectionId: userPreferencesCollectionId,
+              name: "User Preferences",
+              permissions: [
+                Permission.read(Role.users()),
+                Permission.write(Role.users()),
+              ], // Collection-level allows querying; document-level restricts access
+            }
+          );
+          console.log(`✓ Created collection '${userPreferencesCollectionId}'`);
+        } catch (createError: any) {
+          console.error(`✗ Failed to create collection: ${createError.message}`);
+          throw createError;
+        }
+      } else {
+        throw error;
+      }
+    }
+
+    // Step 15: Create user_preferences attributes
+    const userPreferencesStringAttributes = [
+      { key: "userId", size: 36, required: true },
+    ];
+
+    for (const attr of userPreferencesStringAttributes) {
+      try {
+        await appwriteRequest(
+          "POST",
+          `/databases/${databaseId}/collections/${userPreferencesCollectionId}/attributes/string`,
+          {
+            key: attr.key,
+            size: attr.size,
+            required: attr.required,
+          }
+        );
+        console.log(`  ✓ Created attribute '${attr.key}' (string)`);
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+      } catch (error: any) {
+        if (error.code === 409) {
+          console.log(`  - Attribute '${attr.key}' already exists`);
+        } else {
+          console.error(`  ✗ Failed to create attribute '${attr.key}': ${error.message}`);
+        }
+      }
+    }
+
+    // Create array attributes for preferences
+    try {
+      await appwriteRequest(
+        "POST",
+        `/databases/${databaseId}/collections/${userPreferencesCollectionId}/attributes/string`,
+        {
+          key: "dietaryPreferences",
+          size: 1000,
+          required: false,
+          array: true,
+        }
+      );
+      console.log(`  ✓ Created attribute 'dietaryPreferences' (string array)`);
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+    } catch (error: any) {
+      if (error.code === 409) {
+        console.log(`  - Attribute 'dietaryPreferences' already exists`);
+      } else {
+        console.error(`  ✗ Failed to create attribute 'dietaryPreferences': ${error.message}`);
+      }
+    }
+
+    try {
+      await appwriteRequest(
+        "POST",
+        `/databases/${databaseId}/collections/${userPreferencesCollectionId}/attributes/string`,
+        {
+          key: "categoryPreferences",
+          size: 1000,
+          required: false,
+          array: true,
+        }
+      );
+      console.log(`  ✓ Created attribute 'categoryPreferences' (string array)`);
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+    } catch (error: any) {
+      if (error.code === 409) {
+        console.log(`  - Attribute 'categoryPreferences' already exists`);
+      } else {
+        console.error(`  ✗ Failed to create attribute 'categoryPreferences': ${error.message}`);
+      }
+    }
+
+    // Note: createdAt and updatedAt are automatically handled by Appwrite, no need to create them
+
+    // Step 16: Create user_preferences indexes
+    try {
+      await appwriteRequest(
+        "POST",
+        `/databases/${databaseId}/collections/${userPreferencesCollectionId}/indexes`,
+        {
+          key: "idx_userId",
+          type: "key",
+          attributes: ["userId"],
+          orders: ["ASC"],
+        }
+      );
+      console.log(`  ✓ Created index 'idx_userId' on user_preferences`);
+    } catch (error: any) {
+      if (error.code === 409) {
+        console.log(`  - Index 'idx_userId' already exists`);
+      } else {
+        console.error(`  ✗ Failed to create index: ${error.message}`);
+      }
+    }
+
+    // Step 17: Set user_preferences permissions
+    try {
+      await appwriteRequest(
+        "PUT",
+        `/databases/${databaseId}/collections/${userPreferencesCollectionId}`,
+        {
+          name: "User Preferences",
+          permissions: [
+            Permission.read(Role.users()),
+            Permission.write(Role.users()),
+          ], // Collection-level allows querying; document-level restricts access
+        }
+      );
+      console.log(`  ✓ Updated permissions for '${userPreferencesCollectionId}'`);
+    } catch (error: any) {
+      console.error(`  ✗ Failed to update permissions: ${error.message}`);
+    }
+
     console.log("\n✅ Database setup completed successfully!");
     console.log(`\nDatabase ID: ${databaseId}`);
-    console.log(`Collections: ${profilesCollectionId}, ${addressesCollectionId}, ${auditLogsCollectionId}`);
+    console.log(`Collections: ${profilesCollectionId}, ${addressesCollectionId}, ${auditLogsCollectionId}, ${userPreferencesCollectionId}`);
     console.log("\nNote: Make sure to set APPWRITE_DATABASE_ID in your app configuration.");
   } catch (error: any) {
     console.error("\n❌ Database setup failed:", error.message);
