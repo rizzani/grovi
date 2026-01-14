@@ -1,7 +1,8 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from "react";
 import { account } from "../lib/appwrite-client";
 import { AppwriteException } from "appwrite";
 import { logout } from "../lib/auth-service";
+import { logEmailVerified } from "../lib/audit-service";
 
 // User type based on Appwrite User model
 export interface User {
@@ -45,6 +46,10 @@ export function UserProvider({ children }: UserProviderProps) {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  
+  // Track previous verification status to detect changes
+  const prevEmailVerification = useRef<boolean | undefined>(undefined);
+  const prevPhoneVerification = useRef<boolean | undefined>(undefined);
 
   // Derived state
   const userId = user?.id || null;
@@ -100,6 +105,22 @@ export function UserProvider({ children }: UserProviderProps) {
           userId: appwriteUser.$id,
         };
       }
+
+      // Check if email verification status changed (false -> true)
+      if (
+        prevEmailVerification.current === false &&
+        userData.emailVerification === true &&
+        userData.email
+      ) {
+        // Email was just verified - log audit event (non-blocking)
+        logEmailVerified(userData.id, userData.email).catch((error) => {
+          console.warn("[UserContext] Failed to log email verification:", error);
+        });
+      }
+
+      // Update previous verification status
+      prevEmailVerification.current = userData.emailVerification;
+      prevPhoneVerification.current = userData.phoneVerification;
 
       setUser(userData);
       setSession(sessionData);

@@ -23,6 +23,7 @@ import {
 import { account } from "../lib/appwrite-client";
 import { createOrUpdateProfile } from "../lib/profile-service";
 import { useUser } from "../contexts/UserContext";
+import { logPhoneVerified } from "../lib/audit-service";
 
 type Step = "phone" | "otp";
 
@@ -224,12 +225,36 @@ export default function PhoneVerification() {
       // Note: Profile is already created during sign-up, this just updates it
       try {
         const user = await account.get();
+        
+        // Split name into firstName and lastName if name exists
+        let firstName: string | undefined;
+        let lastName: string | undefined;
+        if (user.name) {
+          const parts = user.name.trim().split(/\s+/);
+          if (parts.length === 1) {
+            firstName = parts[0];
+          } else if (parts.length > 1) {
+            firstName = parts[0];
+            lastName = parts.slice(1).join(" ");
+          }
+        }
+        
         await createOrUpdateProfile({
           userId: user.$id,
           email: user.email,
           phone: user.phone || phone,
-          name: user.name || undefined,
+          firstName,
+          lastName,
+          name: user.name || undefined, // Keep for backward compatibility
         });
+
+        // Log audit event (non-blocking)
+        try {
+          await logPhoneVerified(user.$id, user.phone || phone);
+        } catch (auditError) {
+          // Silently fail - audit logging should not break the flow
+          console.warn("Failed to log audit event:", auditError);
+        }
       } catch (profileError: any) {
         // Log error but don't block navigation - profile update can happen later
         console.warn("Failed to update profile with verified phone:", profileError.message);

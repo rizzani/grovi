@@ -7,7 +7,9 @@ const ADDRESSES_COLLECTION_ID = "addresses";
 export interface Profile {
   $id: string;
   userId: string;
-  name?: string;
+  firstName?: string;
+  lastName?: string;
+  name?: string; // Kept for backward compatibility during migration
   phone: string;
   email: string;
   createdAt: string;
@@ -26,7 +28,9 @@ export interface CreateProfileParams {
   userId: string;
   email: string;
   phone: string;
-  name?: string;
+  firstName?: string;
+  lastName?: string;
+  name?: string; // Kept for backward compatibility during migration
 }
 
 export interface CreateAddressParams {
@@ -44,15 +48,48 @@ export interface UpdateAddressParams {
 }
 
 /**
- * Creates or updates a user profile
- * @param params - Profile data
- * @returns Promise with the created/updated profile
+ * Splits a full name into firstName and lastName
+ * Handles various name formats (single name, two names, multiple names)
  */
+function splitName(fullName?: string | null): { firstName?: string; lastName?: string } {
+  if (!fullName || !fullName.trim()) {
+    return {};
+  }
+
+  const trimmed = fullName.trim();
+  const parts = trimmed.split(/\s+/);
+
+  if (parts.length === 0) {
+    return {};
+  } else if (parts.length === 1) {
+    // Single name - use as firstName
+    return { firstName: parts[0] };
+  } else {
+    // Multiple names - first is firstName, rest combined as lastName
+    return {
+      firstName: parts[0],
+      lastName: parts.slice(1).join(" "),
+    };
+  }
+}
+
 export async function createOrUpdateProfile(
   params: CreateProfileParams
 ): Promise<Profile> {
   try {
-    const { userId, email, phone, name } = params;
+    const { userId, email, phone, firstName, lastName, name } = params;
+
+    // Determine firstName and lastName
+    // Priority: explicit firstName/lastName > split from name > existing profile values
+    let finalFirstName = firstName;
+    let finalLastName = lastName;
+
+    // If name is provided but firstName/lastName are not, split the name
+    if ((!finalFirstName && !finalLastName) && name) {
+      const split = splitName(name);
+      finalFirstName = split.firstName;
+      finalLastName = split.lastName;
+    }
 
     // Check if profile already exists
     try {
@@ -65,15 +102,45 @@ export async function createOrUpdateProfile(
       if (existingProfiles.documents.length > 0) {
         // Update existing profile
         const existingProfile = existingProfiles.documents[0] as Profile;
+        
+        // If we don't have firstName/lastName, try to get from existing profile or split existing name
+        if (!finalFirstName && !finalLastName) {
+          if (existingProfile.firstName || existingProfile.lastName) {
+            finalFirstName = finalFirstName || existingProfile.firstName;
+            finalLastName = finalLastName || existingProfile.lastName;
+          } else if (existingProfile.name) {
+            const split = splitName(existingProfile.name);
+            finalFirstName = split.firstName;
+            finalLastName = split.lastName;
+          }
+        }
+
+        const updateData: any = {
+          email,
+          phone,
+        };
+
+        // Update firstName and lastName
+        if (finalFirstName !== undefined) {
+          updateData.firstName = finalFirstName || null;
+        }
+        if (finalLastName !== undefined) {
+          updateData.lastName = finalLastName || null;
+        }
+
+        // Keep name for backward compatibility (generate from firstName + lastName if needed)
+        if (finalFirstName || finalLastName) {
+          const fullName = [finalFirstName, finalLastName].filter(Boolean).join(" ").trim() || null;
+          updateData.name = fullName;
+        } else if (name !== undefined) {
+          updateData.name = name || null;
+        }
+
         const updatedProfile = await databases.updateDocument(
           databaseId,
           PROFILES_COLLECTION_ID,
           existingProfile.$id,
-          {
-            email,
-            phone,
-            name: name || existingProfile.name || null,
-          }
+          updateData
         );
         return updatedProfile as Profile;
       }
@@ -87,6 +154,8 @@ export async function createOrUpdateProfile(
     // Create new profile with document-level permissions
     // Note: createdAt is automatically set by Appwrite
     // Permissions ensure only the user can read/write their own profile
+    const fullName = [finalFirstName, finalLastName].filter(Boolean).join(" ").trim() || null;
+    
     const newProfile = await databases.createDocument(
       databaseId,
       PROFILES_COLLECTION_ID,
@@ -95,7 +164,9 @@ export async function createOrUpdateProfile(
         userId,
         email,
         phone,
-        name: name || null,
+        firstName: finalFirstName || null,
+        lastName: finalLastName || null,
+        name: fullName, // Keep for backward compatibility
       },
       [
         Permission.read(Role.user(userId)),

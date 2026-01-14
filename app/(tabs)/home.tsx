@@ -30,7 +30,7 @@ export default function HomeScreen() {
   const deliveryAddress = "6382 East Greater Parkway";
 
   return (
-    <SafeAreaView style={styles.container} edges={["top"]}>
+    <SafeAreaView style={styles.container} edges={["top", "bottom"]}>
       <ScrollView 
         style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
