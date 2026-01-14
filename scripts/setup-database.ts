@@ -511,7 +511,114 @@ async function setupDatabase() {
       console.error(`  ✗ Failed to update permissions: ${error.message}`);
     }
 
-    // Step 14: Create user_preferences collection
+    // Step 14: Create payment_methods collection
+    const paymentMethodsCollectionId = "payment_methods";
+    let paymentMethodsCollection;
+    try {
+      paymentMethodsCollection = await appwriteRequest(
+        "GET",
+        `/databases/${databaseId}/collections/${paymentMethodsCollectionId}`
+      );
+      console.log(`✓ Collection '${paymentMethodsCollectionId}' already exists`);
+    } catch (error: any) {
+      if (error.code === 404) {
+        try {
+          paymentMethodsCollection = await appwriteRequest(
+            "POST",
+            `/databases/${databaseId}/collections`,
+            {
+              collectionId: paymentMethodsCollectionId,
+              name: "Payment Methods",
+              permissions: [
+                Permission.read(Role.users()),
+                Permission.write(Role.users()),
+              ], // Collection-level allows querying; document-level restricts access
+            }
+          );
+          console.log(`✓ Created collection '${paymentMethodsCollectionId}'`);
+        } catch (createError: any) {
+          console.error(`✗ Failed to create collection: ${createError.message}`);
+          throw createError;
+        }
+      } else {
+        throw error;
+      }
+    }
+
+    // Step 15: Create payment_methods attributes
+    const paymentMethodsStringAttributes = [
+      { key: "userId", size: 36, required: true },
+      { key: "type", size: 30, required: true }, // "card", "cash_on_delivery", "other"
+      { key: "brand", size: 30, required: false }, // Card brand (e.g., "Visa", "Mastercard")
+      { key: "last4", size: 4, required: false }, // Last 4 digits of card
+      { key: "maskedNumber", size: 20, required: false }, // Full masked number (e.g., "•••• 4242")
+      { key: "label", size: 50, required: false }, // Optional label (e.g., "My Visa Card")
+    ];
+
+    for (const attr of paymentMethodsStringAttributes) {
+      try {
+        await appwriteRequest(
+          "POST",
+          `/databases/${databaseId}/collections/${paymentMethodsCollectionId}/attributes/string`,
+          {
+            key: attr.key,
+            size: attr.size,
+            required: attr.required,
+          }
+        );
+        console.log(`  ✓ Created attribute '${attr.key}' (string, required: ${attr.required})`);
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+      } catch (error: any) {
+        if (error.code === 409) {
+          console.log(`  - Attribute '${attr.key}' already exists`);
+        } else {
+          console.error(`  ✗ Failed to create attribute '${attr.key}': ${error.message}`);
+        }
+      }
+    }
+
+    // Note: createdAt is automatically handled by Appwrite, no need to create it
+
+    // Step 16: Create payment_methods indexes
+    try {
+      await appwriteRequest(
+        "POST",
+        `/databases/${databaseId}/collections/${paymentMethodsCollectionId}/indexes`,
+        {
+          key: "idx_userId",
+          type: "key",
+          attributes: ["userId"],
+          orders: ["ASC"],
+        }
+      );
+      console.log(`  ✓ Created index 'idx_userId' on payment_methods`);
+    } catch (error: any) {
+      if (error.code === 409) {
+        console.log(`  - Index 'idx_userId' already exists`);
+      } else {
+        console.error(`  ✗ Failed to create index: ${error.message}`);
+      }
+    }
+
+    // Step 17: Set payment_methods permissions
+    try {
+      await appwriteRequest(
+        "PUT",
+        `/databases/${databaseId}/collections/${paymentMethodsCollectionId}`,
+        {
+          name: "Payment Methods",
+          permissions: [
+            Permission.read(Role.users()),
+            Permission.write(Role.users()),
+          ], // Collection-level allows querying; document-level restricts access
+        }
+      );
+      console.log(`  ✓ Updated permissions for '${paymentMethodsCollectionId}'`);
+    } catch (error: any) {
+      console.error(`  ✗ Failed to update permissions: ${error.message}`);
+    }
+
+    // Step 18: Create user_preferences collection
     const userPreferencesCollectionId = "user_preferences";
     let userPreferencesCollection;
     try {
@@ -545,7 +652,7 @@ async function setupDatabase() {
       }
     }
 
-    // Step 15: Create user_preferences attributes
+    // Step 19: Create user_preferences attributes
     const userPreferencesStringAttributes = [
       { key: "userId", size: 36, required: true },
     ];
@@ -617,7 +724,7 @@ async function setupDatabase() {
 
     // Note: createdAt and updatedAt are automatically handled by Appwrite, no need to create them
 
-    // Step 16: Create user_preferences indexes
+    // Step 20: Create user_preferences indexes
     try {
       await appwriteRequest(
         "POST",
@@ -638,7 +745,7 @@ async function setupDatabase() {
       }
     }
 
-    // Step 17: Set user_preferences permissions
+    // Step 21: Set user_preferences permissions
     try {
       await appwriteRequest(
         "PUT",
@@ -656,7 +763,7 @@ async function setupDatabase() {
       console.error(`  ✗ Failed to update permissions: ${error.message}`);
     }
 
-    // Step 18: Create notification_preferences collection
+    // Step 22: Create notification_preferences collection
     const notificationPreferencesCollectionId = "notification_preferences";
     let notificationPreferencesCollection;
     try {
@@ -750,7 +857,7 @@ async function setupDatabase() {
 
     // Note: createdAt and updatedAt are automatically handled by Appwrite, no need to create them
 
-    // Step 20: Create notification_preferences indexes
+    // Step 24: Create notification_preferences indexes
     try {
       await appwriteRequest(
         "POST",
@@ -771,7 +878,7 @@ async function setupDatabase() {
       }
     }
 
-    // Step 21: Set notification_preferences permissions
+    // Step 25: Set notification_preferences permissions
     try {
       await appwriteRequest(
         "PUT",

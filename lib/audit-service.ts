@@ -15,7 +15,8 @@ export type AuditEventType =
   | "address.default_changed"
   | "preferences.updated"
   | "notifications.preferences_updated"
-  | "notifications.push_token_updated";
+  | "notifications.push_token_updated"
+  | "payment_method.removed";
 
 export interface AuditLogMetadata {
   [key: string]: any;
@@ -316,6 +317,33 @@ export async function logPushTokenUpdated(
     eventType: "notifications.push_token_updated",
     metadata: {
       pushToken: pushToken || null,
+    },
+  });
+}
+
+/**
+ * Logs a payment method removal event
+ * @param userId - User ID
+ * @param paymentMethodId - Payment method document ID
+ * @param details - Payment method details (type, brand, last4)
+ */
+export async function logPaymentMethodRemoved(
+  userId: string,
+  paymentMethodId: string,
+  details: {
+    type: string;
+    brand?: string | null;
+    last4?: string | null;
+  }
+): Promise<void> {
+  await createAuditLog({
+    userId,
+    eventType: "payment_method.removed",
+    metadata: {
+      paymentMethodId,
+      type: details.type,
+      brand: details.brand || null,
+      last4: details.last4 || null,
     },
   });
 }

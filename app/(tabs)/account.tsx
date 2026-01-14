@@ -237,9 +237,7 @@ export default function AccountScreen() {
               icon="card-outline"
               title="Payment Methods"
               subtitle="Manage payment options"
-              onPress={() => {
-                Alert.alert("Coming Soon", "Payment methods will be available soon.");
-              }}
+              onPress={() => router.push("/payment-methods")}
             />
             <MenuItem
               icon="location-outline"
