@@ -1309,9 +1309,203 @@ async function setupDatabase() {
       }
     }
 
+    // Step 33: Create search_analytics collection
+    const searchAnalyticsCollectionId = "search_analytics";
+    let searchAnalyticsCollection;
+    try {
+      searchAnalyticsCollection = await appwriteRequest(
+        "GET",
+        `/databases/${databaseId}/collections/${searchAnalyticsCollectionId}`
+      );
+      console.log(`✓ Collection '${searchAnalyticsCollectionId}' already exists`);
+    } catch (error: any) {
+      if (error.code === 404) {
+        try {
+          searchAnalyticsCollection = await appwriteRequest(
+            "POST",
+            `/databases/${databaseId}/collections`,
+            {
+              collectionId: searchAnalyticsCollectionId,
+              name: "Search Analytics",
+              permissions: [
+                Permission.read(Role.users()),
+                Permission.write(Role.users()),
+              ], // Collection-level allows querying; document-level restricts access
+            }
+          );
+          console.log(`✓ Created collection '${searchAnalyticsCollectionId}'`);
+        } catch (createError: any) {
+          console.error(`✗ Failed to create collection: ${createError.message}`);
+          throw createError;
+        }
+      } else {
+        throw error;
+      }
+    }
+
+    // Step 34: Create search_analytics attributes
+    const searchAnalyticsStringAttributes = [
+      { key: "userId", size: 36, required: false }, // Optional - null for anonymous searches
+      { key: "query", size: 200, required: true }, // Sanitized query
+      { key: "timestamp", size: 50, required: true }, // ISO 8601 format
+    ];
+
+    const searchAnalyticsIntegerAttributes = [
+      { key: "resultCount", required: true },
+    ];
+
+    const searchAnalyticsBooleanAttributes = [
+      { key: "isNoResult", required: true },
+    ];
+
+    for (const attr of searchAnalyticsStringAttributes) {
+      try {
+        await appwriteRequest(
+          "POST",
+          `/databases/${databaseId}/collections/${searchAnalyticsCollectionId}/attributes/string`,
+          {
+            key: attr.key,
+            size: attr.size,
+            required: attr.required,
+          }
+        );
+        console.log(`  ✓ Created attribute '${attr.key}' (string)`);
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+      } catch (error: any) {
+        if (error.code === 409) {
+          console.log(`  - Attribute '${attr.key}' already exists`);
+        } else {
+          console.error(`  ✗ Failed to create attribute '${attr.key}': ${error.message}`);
+        }
+      }
+    }
+
+    for (const attr of searchAnalyticsIntegerAttributes) {
+      try {
+        await appwriteRequest(
+          "POST",
+          `/databases/${databaseId}/collections/${searchAnalyticsCollectionId}/attributes/integer`,
+          {
+            key: attr.key,
+            required: attr.required,
+          }
+        );
+        console.log(`  ✓ Created attribute '${attr.key}' (integer)`);
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+      } catch (error: any) {
+        if (error.code === 409) {
+          console.log(`  - Attribute '${attr.key}' already exists`);
+        } else {
+          console.error(`  ✗ Failed to create attribute '${attr.key}': ${error.message}`);
+        }
+      }
+    }
+
+    for (const attr of searchAnalyticsBooleanAttributes) {
+      try {
+        await appwriteRequest(
+          "POST",
+          `/databases/${databaseId}/collections/${searchAnalyticsCollectionId}/attributes/boolean`,
+          {
+            key: attr.key,
+            required: attr.required,
+          }
+        );
+        console.log(`  ✓ Created attribute '${attr.key}' (boolean)`);
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+      } catch (error: any) {
+        if (error.code === 409) {
+          console.log(`  - Attribute '${attr.key}' already exists`);
+        } else {
+          console.error(`  ✗ Failed to create attribute '${attr.key}': ${error.message}`);
+        }
+      }
+    }
+
+    // Note: createdAt is automatically handled by Appwrite, no need to create it
+
+    // Step 35: Create search_analytics indexes
+    try {
+      await appwriteRequest(
+        "POST",
+        `/databases/${databaseId}/collections/${searchAnalyticsCollectionId}/indexes`,
+        {
+          key: "idx_userId",
+          type: "key",
+          attributes: ["userId"],
+          orders: ["ASC"],
+        }
+      );
+      console.log(`  ✓ Created index 'idx_userId' on search_analytics`);
+    } catch (error: any) {
+      if (error.code === 409) {
+        console.log(`  - Index 'idx_userId' already exists`);
+      } else {
+        console.error(`  ✗ Failed to create index: ${error.message}`);
+      }
+    }
+
+    try {
+      await appwriteRequest(
+        "POST",
+        `/databases/${databaseId}/collections/${searchAnalyticsCollectionId}/indexes`,
+        {
+          key: "idx_timestamp",
+          type: "key",
+          attributes: ["timestamp"],
+          orders: ["DESC"],
+        }
+      );
+      console.log(`  ✓ Created index 'idx_timestamp' on search_analytics`);
+    } catch (error: any) {
+      if (error.code === 409) {
+        console.log(`  - Index 'idx_timestamp' already exists`);
+      } else {
+        console.error(`  ✗ Failed to create index: ${error.message}`);
+      }
+    }
+
+    try {
+      await appwriteRequest(
+        "POST",
+        `/databases/${databaseId}/collections/${searchAnalyticsCollectionId}/indexes`,
+        {
+          key: "idx_isNoResult",
+          type: "key",
+          attributes: ["isNoResult"],
+          orders: ["ASC"],
+        }
+      );
+      console.log(`  ✓ Created index 'idx_isNoResult' on search_analytics`);
+    } catch (error: any) {
+      if (error.code === 409) {
+        console.log(`  - Index 'idx_isNoResult' already exists`);
+      } else {
+        console.error(`  ✗ Failed to create index: ${error.message}`);
+      }
+    }
+
+    // Step 36: Set search_analytics permissions
+    try {
+      await appwriteRequest(
+        "PUT",
+        `/databases/${databaseId}/collections/${searchAnalyticsCollectionId}`,
+        {
+          name: "Search Analytics",
+          permissions: [
+            Permission.read(Role.users()),
+            Permission.write(Role.users()),
+          ], // Collection-level allows querying; document-level restricts access
+        }
+      );
+      console.log(`  ✓ Updated permissions for '${searchAnalyticsCollectionId}'`);
+    } catch (error: any) {
+      console.error(`  ✗ Failed to update permissions: ${error.message}`);
+    }
+
     console.log("\n✅ Database setup completed successfully!");
     console.log(`\nDatabase ID: ${databaseId}`);
-    console.log(`Collections: ${profilesCollectionId}, ${addressesCollectionId}, ${auditLogsCollectionId}, ${userPreferencesCollectionId}, ${notificationPreferencesCollectionId}, ${storeLocationProductCollectionId}`);
+    console.log(`Collections: ${profilesCollectionId}, ${addressesCollectionId}, ${auditLogsCollectionId}, ${userPreferencesCollectionId}, ${notificationPreferencesCollectionId}, ${storeLocationProductCollectionId}, ${searchAnalyticsCollectionId}`);
     console.log("\nNote: Make sure to set APPWRITE_DATABASE_ID in your app configuration.");
   } catch (error: any) {
     console.error("\n❌ Database setup failed:", error.message);

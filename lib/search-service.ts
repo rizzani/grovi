@@ -9,6 +9,7 @@ import {
 } from "./search/ranking";
 import { UserPreferences } from "./preferences-service";
 import { normalizeJamaicanTerms, expandQueryWithSynonyms } from "./search/jamaican-terms";
+import { logSearchResults } from "./search-analytics-service";
 
 /**
  * Core Search Backend Service
@@ -717,17 +718,21 @@ async function queryStoreLocationProducts(
  * Only returns active, available products (in_stock = true)
  * Results are deduplicated by SKU and sorted by relevance score
  * 
+ * Search events are automatically logged for analytics (non-blocking)
+ * 
  * @param query - Search query string
  * @param limit - Maximum number of results to return (default: 50)
  * @param userPrefs - User preferences for ranking boost (optional, non-breaking). Can be UserPreferences or RankingUserPrefs
  * @param sortMode - Sort mode: "relevance" (default), "price_asc", or "price_desc"
+ * @param userId - Optional user ID for analytics tracking (null for anonymous searches)
  * @returns Array of search results sorted by relevance, with product, brand, category, and store information
  */
 export async function searchProducts(
   query: string,
   limit: number = 50,
   userPrefs?: UserPreferences | RankingUserPrefs | null,
-  sortMode: SortMode = "relevance"
+  sortMode: SortMode = "relevance",
+  userId?: string | null
 ): Promise<SearchResult[]> {
   if (!query || query.trim().length === 0) {
     return [];
@@ -895,9 +900,25 @@ export async function searchProducts(
     const rankedResults = rankResults(results, query, rankingPrefs, sortMode);
     
     // Limit results
-    return rankedResults.slice(0, limit);
+    const finalResults = rankedResults.slice(0, limit);
+    
+    // Log search analytics (non-blocking - errors are silently caught)
+    logSearchResults(userId || null, query, finalResults).catch((error) => {
+      // Analytics logging failures should never break search
+      if (__DEV__) {
+        console.warn("[SearchService] Failed to log search analytics:", error);
+      }
+    });
+    
+    return finalResults;
   } catch (error: any) {
     console.error("Error searching products:", error);
+    
+    // Log no-result search even on error (non-blocking)
+    logSearchResults(userId || null, query, []).catch(() => {
+      // Ignore analytics errors
+    });
+    
     // Return empty array on error rather than throwing
     // This allows the UI to handle the error gracefully
     return [];
