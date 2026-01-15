@@ -5,7 +5,6 @@ import {
   StyleSheet,
   TouchableOpacity,
   Text,
-  FlatList,
   Keyboard,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
@@ -80,12 +79,14 @@ export default function SearchBar({
     }, 200);
   };
 
-  const filteredSuggestions = suggestions.filter((suggestion) =>
-    suggestion.text.toLowerCase().includes(query.toLowerCase())
-  );
+  const filteredSuggestions = suggestions
+    .filter((suggestion) =>
+      suggestion.text.toLowerCase().includes(query.toLowerCase())
+    )
+    .slice(0, 7); // Limit to 7 suggestions
 
   return (
-    <View style={styles.container}>
+    <View style={styles.container} collapsable={false}>
       <View style={[styles.searchContainer, isFocused && styles.searchContainerFocused]}>
         <Ionicons name="search" size={20} color="#6B7280" style={styles.searchIcon} />
         <TextInput
@@ -117,34 +118,34 @@ export default function SearchBar({
       </View>
 
       {showAutocomplete && filteredSuggestions.length > 0 && (
-        <View style={styles.autocompleteContainer}>
-          <FlatList
-            data={filteredSuggestions}
-            keyExtractor={(item) => item.id}
-            renderItem={({ item }) => (
-              <TouchableOpacity
-                style={styles.suggestionItem}
-                onPress={() => handleSuggestionPress(item)}
-                activeOpacity={0.7}
-              >
-                <Ionicons
-                  name={
-                    item.type === "category"
-                      ? "list"
-                      : item.type === "store"
-                      ? "storefront"
-                      : "search"
-                  }
-                  size={18}
-                  color="#6B7280"
-                  style={styles.suggestionIcon}
-                />
-                <Text style={styles.suggestionText}>{item.text}</Text>
-              </TouchableOpacity>
-            )}
-            keyboardShouldPersistTaps="handled"
-            style={styles.suggestionsList}
-          />
+        <View style={styles.autocompleteContainer} collapsable={false}>
+          {filteredSuggestions.map((item, index) => (
+            <TouchableOpacity
+              key={item.id}
+              style={[
+                styles.suggestionItem,
+                index === filteredSuggestions.length - 1 && styles.suggestionItemLast,
+              ]}
+              onPress={() => handleSuggestionPress(item)}
+              activeOpacity={0.6}
+            >
+              <Ionicons
+                name={
+                  item.type === "category"
+                    ? "list"
+                    : item.type === "store"
+                    ? "storefront"
+                    : "search"
+                }
+                size={18}
+                color="#6B7280"
+                style={styles.suggestionIcon}
+              />
+              <Text style={styles.suggestionText} numberOfLines={1} ellipsizeMode="tail">
+                {item.text}
+              </Text>
+            </TouchableOpacity>
+          ))}
         </View>
       )}
     </View>
@@ -159,12 +160,16 @@ const styles = StyleSheet.create({
   searchContainer: {
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "center",
     backgroundColor: "#F9FAFB",
     borderRadius: 12,
     paddingHorizontal: 16,
-    paddingVertical: 12,
     borderWidth: 1,
     borderColor: "#E5E7EB",
+    height: 48,
+    minHeight: 48,
+    maxHeight: 48,
+    overflow: "visible",
   },
   searchContainerFocused: {
     borderColor: "#10B981",
@@ -178,10 +183,18 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: "#111827",
     padding: 0,
+    margin: 0,
+    height: 24,
+    includeFontPadding: false,
+    textAlignVertical: "center",
   },
   clearButton: {
     marginLeft: 8,
-    padding: 4,
+    padding: 0,
+    width: 24,
+    height: 24,
+    alignItems: "center",
+    justifyContent: "center",
   },
   autocompleteContainer: {
     position: "absolute",
@@ -201,19 +214,20 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 8,
     elevation: 4,
-    maxHeight: 300,
+    overflow: "hidden",
     zIndex: 1000,
-  },
-  suggestionsList: {
-    maxHeight: 300,
   },
   suggestionItem: {
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingVertical: 11,
     borderBottomWidth: 1,
     borderBottomColor: "#F3F4F6",
+    height: 44, // Fixed height for each item
+  },
+  suggestionItemLast: {
+    borderBottomWidth: 0, // Remove border from last item for cleaner look
   },
   suggestionIcon: {
     marginRight: 12,

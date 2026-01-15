@@ -896,9 +896,422 @@ async function setupDatabase() {
       console.error(`  ✗ Failed to update permissions: ${error.message}`);
     }
 
+    // Step 26: Create store_location_product collection
+    const storeLocationProductCollectionId = "store_location_product";
+    let storeLocationProductCollection;
+    try {
+      storeLocationProductCollection = await appwriteRequest(
+        "GET",
+        `/databases/${databaseId}/collections/${storeLocationProductCollectionId}`
+      );
+      console.log(`✓ Collection '${storeLocationProductCollectionId}' already exists`);
+    } catch (error: any) {
+      if (error.code === 404) {
+        try {
+          storeLocationProductCollection = await appwriteRequest(
+            "POST",
+            `/databases/${databaseId}/collections`,
+            {
+              collectionId: storeLocationProductCollectionId,
+              name: "Store Location Product",
+              permissions: [
+                Permission.read(Role.users()),
+                Permission.write(Role.users()),
+              ],
+            }
+          );
+          console.log(`✓ Created collection '${storeLocationProductCollectionId}'`);
+        } catch (createError: any) {
+          console.error(`✗ Failed to create collection: ${createError.message}`);
+          throw createError;
+        }
+      } else {
+        throw error;
+      }
+    }
+
+    // Step 27: Create store_location_product attributes
+    const storeLocationProductStringAttributes = [
+      { key: "product_id", size: 255, required: true },
+      { key: "store_location_id", size: 255, required: true },
+      { key: "brand_id", size: 255, required: true },
+      { key: "source_key", size: 50, required: false },
+      { key: "external_id", size: 255, required: false },
+      { key: "external_url", size: 2048, required: false },
+      { key: "price_currency", size: 3, required: false },
+      { key: "category_leaf_id", size: 255, required: false },
+      { key: "content_hash", size: 64, required: false },
+    ];
+
+    for (const attr of storeLocationProductStringAttributes) {
+      try {
+        await appwriteRequest(
+          "POST",
+          `/databases/${databaseId}/collections/${storeLocationProductCollectionId}/attributes/string`,
+          {
+            key: attr.key,
+            size: attr.size,
+            required: attr.required,
+          }
+        );
+        console.log(`  ✓ Created attribute '${attr.key}' (string, required: ${attr.required})`);
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+      } catch (error: any) {
+        if (error.code === 409) {
+          console.log(`  - Attribute '${attr.key}' already exists`);
+        } else {
+          console.error(`  ✗ Failed to create attribute '${attr.key}': ${error.message}`);
+        }
+      }
+    }
+
+    // Create category_path_ids as string array
+    try {
+      await appwriteRequest(
+        "POST",
+        `/databases/${databaseId}/collections/${storeLocationProductCollectionId}/attributes/string`,
+        {
+          key: "category_path_ids",
+          size: 255,
+          required: false,
+          array: true,
+        }
+      );
+      console.log(`  ✓ Created attribute 'category_path_ids' (string array)`);
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+    } catch (error: any) {
+      if (error.code === 409) {
+        console.log(`  - Attribute 'category_path_ids' already exists`);
+      } else {
+        console.error(`  ✗ Failed to create attribute 'category_path_ids': ${error.message}`);
+      }
+    }
+
+    // Create integer attribute for price_jmd_cents (required)
+    try {
+      await appwriteRequest(
+        "POST",
+        `/databases/${databaseId}/collections/${storeLocationProductCollectionId}/attributes/integer`,
+        {
+          key: "price_jmd_cents",
+          required: true,
+        }
+      );
+      console.log(`  ✓ Created attribute 'price_jmd_cents' (integer, required)`);
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+    } catch (error: any) {
+      if (error.code === 409) {
+        console.log(`  - Attribute 'price_jmd_cents' already exists`);
+      } else {
+        console.error(`  ✗ Failed to create attribute 'price_jmd_cents': ${error.message}`);
+      }
+    }
+
+    // Create boolean attribute for in_stock (required)
+    try {
+      await appwriteRequest(
+        "POST",
+        `/databases/${databaseId}/collections/${storeLocationProductCollectionId}/attributes/boolean`,
+        {
+          key: "in_stock",
+          required: true,
+        }
+      );
+      console.log(`  ✓ Created attribute 'in_stock' (boolean, required)`);
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+    } catch (error: any) {
+      if (error.code === 409) {
+        console.log(`  - Attribute 'in_stock' already exists`);
+      } else {
+        console.error(`  ✗ Failed to create attribute 'in_stock': ${error.message}`);
+      }
+    }
+
+    // Create datetime attributes
+    const storeLocationProductDatetimeAttributes = [
+      { key: "first_seen_at", required: false },
+      { key: "last_seen_at", required: false },
+    ];
+
+    for (const attr of storeLocationProductDatetimeAttributes) {
+      try {
+        await appwriteRequest(
+          "POST",
+          `/databases/${databaseId}/collections/${storeLocationProductCollectionId}/attributes/datetime`,
+          {
+            key: attr.key,
+            required: attr.required,
+          }
+        );
+        console.log(`  ✓ Created attribute '${attr.key}' (datetime, required: ${attr.required})`);
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+      } catch (error: any) {
+        if (error.code === 409) {
+          console.log(`  - Attribute '${attr.key}' already exists`);
+        } else {
+          console.error(`  ✗ Failed to create attribute '${attr.key}': ${error.message}`);
+        }
+      }
+    }
+
+    // Step 28: Create store_location_product indexes
+    try {
+      await appwriteRequest(
+        "POST",
+        `/databases/${databaseId}/collections/${storeLocationProductCollectionId}/indexes`,
+        {
+          key: "idx_product_location",
+          type: "key",
+          attributes: ["product_id", "store_location_id"],
+          orders: ["ASC", "ASC"],
+        }
+      );
+      console.log(`  ✓ Created index 'idx_product_location' on store_location_product`);
+    } catch (error: any) {
+      if (error.code === 409) {
+        console.log(`  - Index 'idx_product_location' already exists`);
+      } else {
+        console.error(`  ✗ Failed to create index: ${error.message}`);
+      }
+    }
+
+    try {
+      await appwriteRequest(
+        "POST",
+        `/databases/${databaseId}/collections/${storeLocationProductCollectionId}/indexes`,
+        {
+          key: "idx_store_location",
+          type: "key",
+          attributes: ["store_location_id"],
+          orders: ["ASC"],
+        }
+      );
+      console.log(`  ✓ Created index 'idx_store_location' on store_location_product`);
+    } catch (error: any) {
+      if (error.code === 409) {
+        console.log(`  - Index 'idx_store_location' already exists`);
+      } else {
+        console.error(`  ✗ Failed to create index: ${error.message}`);
+      }
+    }
+
+    try {
+      await appwriteRequest(
+        "POST",
+        `/databases/${databaseId}/collections/${storeLocationProductCollectionId}/indexes`,
+        {
+          key: "idx_brand",
+          type: "key",
+          attributes: ["brand_id"],
+          orders: ["ASC"],
+        }
+      );
+      console.log(`  ✓ Created index 'idx_brand' on store_location_product`);
+    } catch (error: any) {
+      if (error.code === 409) {
+        console.log(`  - Index 'idx_brand' already exists`);
+      } else {
+        console.error(`  ✗ Failed to create index: ${error.message}`);
+      }
+    }
+
+    try {
+      await appwriteRequest(
+        "POST",
+        `/databases/${databaseId}/collections/${storeLocationProductCollectionId}/indexes`,
+        {
+          key: "idx_in_stock",
+          type: "key",
+          attributes: ["in_stock"],
+          orders: ["ASC"],
+        }
+      );
+      console.log(`  ✓ Created index 'idx_in_stock' on store_location_product`);
+    } catch (error: any) {
+      if (error.code === 409) {
+        console.log(`  - Index 'idx_in_stock' already exists`);
+      } else {
+        console.error(`  ✗ Failed to create index: ${error.message}`);
+      }
+    }
+
+    try {
+      await appwriteRequest(
+        "POST",
+        `/databases/${databaseId}/collections/${storeLocationProductCollectionId}/indexes`,
+        {
+          key: "idx_store_stock",
+          type: "key",
+          attributes: ["store_location_id", "in_stock"],
+          orders: ["ASC", "ASC"],
+        }
+      );
+      console.log(`  ✓ Created composite index 'idx_store_stock' on store_location_product`);
+    } catch (error: any) {
+      if (error.code === 409) {
+        console.log(`  - Index 'idx_store_stock' already exists`);
+      } else {
+        console.error(`  ✗ Failed to create index: ${error.message}`);
+      }
+    }
+
+    try {
+      await appwriteRequest(
+        "POST",
+        `/databases/${databaseId}/collections/${storeLocationProductCollectionId}/indexes`,
+        {
+          key: "idx_category_leaf",
+          type: "key",
+          attributes: ["category_leaf_id"],
+          orders: ["ASC"],
+        }
+      );
+      console.log(`  ✓ Created index 'idx_category_leaf' on store_location_product`);
+    } catch (error: any) {
+      if (error.code === 409) {
+        console.log(`  - Index 'idx_category_leaf' already exists`);
+      } else {
+        console.error(`  ✗ Failed to create index: ${error.message}`);
+      }
+    }
+
+    // Step 29: Set store_location_product permissions
+    try {
+      await appwriteRequest(
+        "PUT",
+        `/databases/${databaseId}/collections/${storeLocationProductCollectionId}`,
+        {
+          name: "Store Location Product",
+          permissions: [
+            Permission.read(Role.users()),
+            Permission.write(Role.users()),
+          ],
+        }
+      );
+      console.log(`  ✓ Updated permissions for '${storeLocationProductCollectionId}'`);
+    } catch (error: any) {
+      console.error(`  ✗ Failed to update permissions: ${error.message}`);
+    }
+
+    // Step 30: Create indexes for store_location collection (if it exists)
+    const storeLocationCollectionId = "store_location";
+    console.log(`\n📦 Checking for '${storeLocationCollectionId}' collection...`);
+    try {
+      // Check if collection exists
+      await appwriteRequest(
+        "GET",
+        `/databases/${databaseId}/collections/${storeLocationCollectionId}`
+      );
+      console.log(`✓ Collection '${storeLocationCollectionId}' exists, creating indexes...`);
+
+      // Create index on is_active
+      try {
+        await appwriteRequest(
+          "POST",
+          `/databases/${databaseId}/collections/${storeLocationCollectionId}/indexes`,
+          {
+            key: "idx_is_active",
+            type: "key",
+            attributes: ["is_active"],
+            orders: ["ASC"],
+          }
+        );
+        console.log(`  ✓ Created index 'idx_is_active' on ${storeLocationCollectionId}`);
+      } catch (error: any) {
+        if (error.code === 409) {
+          console.log(`  - Index 'idx_is_active' already exists on ${storeLocationCollectionId}`);
+        } else {
+          console.error(`  ✗ Failed to create index 'idx_is_active': ${error.message}`);
+        }
+      }
+    } catch (error: any) {
+      if (error.code === 404) {
+        console.log(`  - Collection '${storeLocationCollectionId}' does not exist (skipping indexes)`);
+      } else {
+        console.warn(`  ⚠️  Could not check/create indexes for '${storeLocationCollectionId}': ${error.message}`);
+      }
+    }
+
+    // Step 31: Create indexes for products collection (if it exists)
+    const productsCollectionId = "products";
+    console.log(`\n📦 Checking for '${productsCollectionId}' collection...`);
+    try {
+      // Check if collection exists
+      await appwriteRequest(
+        "GET",
+        `/databases/${databaseId}/collections/${productsCollectionId}`
+      );
+      console.log(`✓ Collection '${productsCollectionId}' exists, creating indexes...`);
+
+      // Create full-text index on title (if it doesn't already exist)
+      try {
+        await appwriteRequest(
+          "POST",
+          `/databases/${databaseId}/collections/${productsCollectionId}/indexes`,
+          {
+            key: "idx_title_fulltext",
+            type: "fulltext",
+            attributes: ["title"],
+          }
+        );
+        console.log(`  ✓ Created full-text index 'idx_title_fulltext' on ${productsCollectionId}.title`);
+      } catch (error: any) {
+        if (error.code === 409) {
+          console.log(`  - Full-text index 'idx_title_fulltext' already exists on ${productsCollectionId}`);
+        } else {
+          console.warn(`  ⚠️  Could not create full-text index on title: ${error.message}`);
+          console.log(`  (Note: Full-text index may already exist with a different name)`);
+        }
+      }
+    } catch (error: any) {
+      if (error.code === 404) {
+        console.log(`  - Collection '${productsCollectionId}' does not exist (skipping indexes)`);
+      } else {
+        console.warn(`  ⚠️  Could not check/create indexes for '${productsCollectionId}': ${error.message}`);
+      }
+    }
+
+    // Step 32: Create indexes for categories collection (if it exists)
+    const categoriesCollectionId = "categories";
+    console.log(`\n📦 Checking for '${categoriesCollectionId}' collection...`);
+    try {
+      // Check if collection exists
+      await appwriteRequest(
+        "GET",
+        `/databases/${databaseId}/collections/${categoriesCollectionId}`
+      );
+      console.log(`✓ Collection '${categoriesCollectionId}' exists, creating indexes...`);
+
+      // Create full-text index on name (recommended for search performance)
+      try {
+        await appwriteRequest(
+          "POST",
+          `/databases/${databaseId}/collections/${categoriesCollectionId}/indexes`,
+          {
+            key: "idx_name_fulltext",
+            type: "fulltext",
+            attributes: ["name"],
+          }
+        );
+        console.log(`  ✓ Created full-text index 'idx_name_fulltext' on ${categoriesCollectionId}.name`);
+      } catch (error: any) {
+        if (error.code === 409) {
+          console.log(`  - Full-text index 'idx_name_fulltext' already exists on ${categoriesCollectionId}`);
+        } else {
+          console.warn(`  ⚠️  Could not create full-text index on name: ${error.message}`);
+        }
+      }
+    } catch (error: any) {
+      if (error.code === 404) {
+        console.log(`  - Collection '${categoriesCollectionId}' does not exist (skipping indexes)`);
+      } else {
+        console.warn(`  ⚠️  Could not check/create indexes for '${categoriesCollectionId}': ${error.message}`);
+      }
+    }
+
     console.log("\n✅ Database setup completed successfully!");
     console.log(`\nDatabase ID: ${databaseId}`);
-    console.log(`Collections: ${profilesCollectionId}, ${addressesCollectionId}, ${auditLogsCollectionId}, ${userPreferencesCollectionId}, ${notificationPreferencesCollectionId}`);
+    console.log(`Collections: ${profilesCollectionId}, ${addressesCollectionId}, ${auditLogsCollectionId}, ${userPreferencesCollectionId}, ${notificationPreferencesCollectionId}, ${storeLocationProductCollectionId}`);
     console.log("\nNote: Make sure to set APPWRITE_DATABASE_ID in your app configuration.");
   } catch (error: any) {
     console.error("\n❌ Database setup failed:", error.message);
