@@ -5,11 +5,13 @@ import { useLocalSearchParams } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import SearchBar from "../../components/SearchBar";
 import { useSearch } from "../../contexts/SearchContext";
+import { useUser } from "../../contexts/UserContext";
 import { getSearchSuggestions, searchProducts } from "../../lib/search-service";
 
 export default function SearchScreen() {
   const params = useLocalSearchParams<{ q?: string }>();
   const { performSearch, recentSearches, clearRecentSearches } = useSearch();
+  const { userId } = useUser();
   const [searchQuery, setSearchQuery] = useState(params.q || "");
   const [searchSuggestions, setSearchSuggestions] = useState<any[]>([]);
   const [searchResults, setSearchResults] = useState<any[]>([]);
@@ -46,7 +48,7 @@ export default function SearchScreen() {
 
     setIsSearching(true);
     try {
-      const results = await searchProducts(query);
+      const results = await searchProducts(query, 50, undefined, "relevance", userId || null);
       setSearchResults(results);
     } catch (error) {
       console.error("Search error:", error);
