@@ -2,8 +2,12 @@
  * Search Ranking Module
  * 
  * Provides deterministic, configurable relevance ranking for product search results.
- * Supports multi-word queries, user preferences, and configurable weights.
+ * Supports multi-word queries, user preferences, configurable weights, typo tolerance,
+ * and Jamaican naming variations.
  */
+
+import { normalizeJamaicanTerms } from "./jamaican-terms";
+import { fuzzyMatchScore as calculateFuzzyScore, similarityRatio, FUZZY_MATCH_CONFIG } from "./fuzzy-match";
 
 // Minimal type definitions to avoid circular dependency
 // These match the types from search-service.ts
@@ -56,6 +60,7 @@ export const RANKING_WEIGHTS = {
   frequentlySearched: 0, // Placeholder for future analytics
   preferenceCategoryBoost: 60, // Small boost if product category is in user preferred categories
   preferenceDietaryBoost: 40, // Small boost if product matches dietary preference tags
+  fuzzyMatch: 200, // Score for fuzzy matches (typo tolerance) - lower than exact but still significant
 } as const;
 
 /**
@@ -73,6 +78,8 @@ export interface MatchInfo {
   categoryExact: boolean;
   categoryContains: boolean;
   titleStartsWithQuery: boolean; // For tie-breaking
+  fuzzyMatchScore: number; // Fuzzy matching score (0-1) for typo tolerance
+  fuzzyMatch: boolean; // Whether this is a fuzzy match (typo-tolerant)
 }
 
 /**
@@ -92,11 +99,14 @@ export interface RankingUserPrefs {
  * 3. Collapse multiple spaces
  * 4. Remove punctuation/special characters
  * 5. Strip unit/size tokens (numbers with units, pack indicators, multipliers)
+ * 6. Normalize Jamaican terms (apply corrections and canonical forms)
  * 
  * Examples:
  * - "Grace Corned Beef 340g" -> "grace corned beef"
  * - "Milk 2L" -> "milk"
  * - "Tuna x2" -> "tuna"
+ * - "corn beef" -> "corned beef" (Jamaican term correction)
+ * - "graece" -> "grace" (typo correction)
  * 
  * @param input - Text to normalize
  * @returns Normalized text
@@ -131,7 +141,10 @@ export function normalizeText(input: string): string {
   const multiplierPattern = /\b(x\s*\d+|\d+\s*x)\b/gi;
   normalized = normalized.replace(multiplierPattern, "");
   
-  // Step 5: Clean up any double spaces left after removal
+  // Step 5: Normalize Jamaican terms (apply corrections and canonical forms)
+  normalized = normalizeJamaicanTerms(normalized);
+  
+  // Step 6: Clean up any double spaces left after removal
   normalized = normalized.replace(/\s+/g, " ").trim();
   
   return normalized;
@@ -182,13 +195,14 @@ export function tokenize(input: string): string[] {
 
 /**
  * Get match information for a product against a query
+ * Includes fuzzy matching for typo tolerance
  * 
  * @param product - Product to analyze
  * @param brand - Brand name (normalized)
  * @param category - Category (optional)
  * @param queryNormalized - Normalized query string
  * @param queryTokens - Tokenized query
- * @returns Match information
+ * @returns Match information including fuzzy match scores
  */
 export function getMatchInfo(
   product: RankingProduct,
@@ -201,27 +215,65 @@ export function getMatchInfo(
   const brandNormalized = brand ? normalizeText(brand) : "";
   const categoryNameNormalized = category ? normalizeText(category.name) : "";
   
-  // Title matches
+  // Title matches (exact matches first)
   const exactTitle = productTitleNormalized === queryNormalized;
   const titleStartsWith = !exactTitle && productTitleNormalized.startsWith(queryNormalized);
   const titleContains = !exactTitle && !titleStartsWith && productTitleNormalized.includes(queryNormalized);
   
-  // Token coverage in title
-  let tokensMatched = 0;
-  if (queryTokens.length > 0) {
-    tokensMatched = queryTokens.filter(token => 
-      productTitleNormalized.includes(token)
-    ).length;
+  // Fuzzy matching for typo tolerance (only if no exact match found)
+  let fuzzyMatchScore = 0.0;
+  let fuzzyMatch = false;
+  
+  if (!exactTitle && !titleStartsWith && !titleContains) {
+    // Calculate fuzzy match score for the entire query
+    const titleFuzzyScore = calculateFuzzyScore(product.title, queryNormalized);
+    
+    // Only consider it a fuzzy match if similarity is above threshold
+    if (titleFuzzyScore >= FUZZY_MATCH_CONFIG.similarityThreshold) {
+      fuzzyMatchScore = titleFuzzyScore;
+      fuzzyMatch = true;
+    }
   }
   
-  // Brand matches
-  const brandExact = brandNormalized === queryNormalized;
-  const brandStartsWith = !brandExact && brandNormalized.startsWith(queryNormalized);
-  const brandContains = !brandExact && !brandStartsWith && brandNormalized.includes(queryNormalized);
+  // Token coverage in title (including fuzzy token matching)
+  let tokensMatched = 0;
+  if (queryTokens.length > 0) {
+    tokensMatched = queryTokens.filter(token => {
+      // Check exact match first
+      if (productTitleNormalized.includes(token)) {
+        return true;
+      }
+      // Check fuzzy match for tokens
+      const tokenScore = calculateFuzzyScore(product.title, token);
+      return tokenScore >= FUZZY_MATCH_CONFIG.similarityThreshold;
+    }).length;
+  }
   
-  // Category matches
+  // Brand matches (including fuzzy matching if no exact match)
+  const brandExact = brandNormalized === queryNormalized;
+  let brandStartsWith = !brandExact && brandNormalized.startsWith(queryNormalized);
+  let brandContains = !brandExact && !brandStartsWith && brandNormalized.includes(queryNormalized);
+  
+  // Apply fuzzy matching to brand if no exact match found
+  if (!brandExact && !brandStartsWith && !brandContains && brandNormalized) {
+    const brandFuzzyScore = calculateFuzzyScore(brand, queryNormalized);
+    if (brandFuzzyScore >= FUZZY_MATCH_CONFIG.similarityThreshold) {
+      // Treat fuzzy brand match as "contains" level match
+      brandContains = true;
+    }
+  }
+  
+  // Category matches (including fuzzy matching if no exact match)
   const categoryExact = categoryNameNormalized === queryNormalized;
-  const categoryContains = !categoryExact && categoryNameNormalized.includes(queryNormalized);
+  let categoryContains = !categoryExact && categoryNameNormalized.includes(queryNormalized);
+  
+  // Apply fuzzy matching to category if no exact match found
+  if (!categoryExact && !categoryContains && categoryNameNormalized) {
+    const categoryFuzzyScore = calculateFuzzyScore(category.name, queryNormalized);
+    if (categoryFuzzyScore >= FUZZY_MATCH_CONFIG.similarityThreshold) {
+      categoryContains = true;
+    }
+  }
   
   return {
     exactTitle,
@@ -235,6 +287,8 @@ export function getMatchInfo(
     categoryExact,
     categoryContains,
     titleStartsWithQuery: titleStartsWith || exactTitle,
+    fuzzyMatchScore,
+    fuzzyMatch,
   };
 }
 
@@ -274,6 +328,11 @@ export function calculateRelevanceScore(
     score += lengthBonus;
   } else if (matchInfo.titleContains) {
     score += RANKING_WEIGHTS.titleContains;
+  } else if (matchInfo.fuzzyMatch) {
+    // Fuzzy match (typo tolerance) - apply weighted score based on similarity
+    // Higher similarity = higher score, but still lower than exact matches
+    const fuzzyScore = RANKING_WEIGHTS.fuzzyMatch * matchInfo.fuzzyMatchScore;
+    score += fuzzyScore;
   }
   
   // Token coverage (for multi-word queries)
