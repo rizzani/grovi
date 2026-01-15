@@ -61,23 +61,26 @@ export default function SearchScreen() {
 
   return (
     <SafeAreaView style={styles.container} edges={["top", "bottom"]}>
+      {/* Search Bar - Fixed at top */}
+      <View style={styles.searchWrapper}>
+        <SearchBar
+          placeholder="Search Product"
+          onSearch={handleSearch}
+          onSuggestionSelect={handleSuggestionSelect}
+          suggestions={searchSuggestions}
+          showSuggestions={true}
+          onChangeText={setSearchQuery}
+          autoFocus={!params.q}
+        />
+      </View>
+
+      {/* Scrollable Content */}
       <ScrollView
         style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
       >
-        {/* Search Bar */}
-        <View style={styles.searchWrapper}>
-          <SearchBar
-            placeholder="Search Product"
-            onSearch={handleSearch}
-            onSuggestionSelect={handleSuggestionSelect}
-            suggestions={searchSuggestions}
-            showSuggestions={true}
-            onChangeText={setSearchQuery}
-            autoFocus={!params.q}
-          />
-        </View>
 
         {/* Search Results or Empty State */}
         {isSearching ? (
@@ -125,9 +128,15 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingHorizontal: 16,
     paddingTop: 12,
+    paddingBottom: 24,
   },
   searchWrapper: {
-    marginBottom: 24,
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 12,
+    backgroundColor: "#FFFFFF",
+    borderBottomWidth: 1,
+    borderBottomColor: "#E5E7EB",
   },
   loadingContainer: {
     flex: 1,
