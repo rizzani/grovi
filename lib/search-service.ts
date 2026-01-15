@@ -1,6 +1,12 @@
 import { Query } from "appwrite";
 import { databases, databaseId } from "./appwrite-client";
 import { SearchSuggestion } from "../components/SearchBar";
+import {
+  rankResults,
+  RankingUserPrefs,
+  SortMode,
+} from "./search/ranking";
+import { UserPreferences } from "./preferences-service";
 
 /**
  * Core Search Backend Service
@@ -95,6 +101,24 @@ export interface SearchResult {
   priceJmdCents: number;
   inStock: boolean;
   sku: string;
+  relevanceScore?: number; // Optional relevance score for debugging
+}
+
+// Ranking logic has been moved to lib/search/ranking.ts
+// Import rankResults, RankingUserPrefs, and SortMode from there
+
+/**
+ * Convert UserPreferences to RankingUserPrefs format
+ */
+function convertUserPrefsToRankingPrefs(
+  userPrefs: UserPreferences | null | undefined
+): RankingUserPrefs | undefined {
+  if (!userPrefs) return undefined;
+  
+  return {
+    preferredCategories: userPrefs.categoryPreferences || [],
+    dietaryPreferences: userPrefs.dietaryPreferences || [],
+  };
 }
 
 /**
@@ -656,24 +680,40 @@ async function queryStoreLocationProducts(
   return filteredResults;
 }
 
+// Ranking functions have been moved to lib/search/ranking.ts
+// Use rankResults() from that module instead
+
 /**
  * Perform a global product search across all active stores
  * 
  * Supports searching by:
- * - Product name (partial match)
- * - Brand (partial match)
- * - Category (partial match)
+ * - Product name (exact, startsWith, contains, and token-based matches)
+ * - Brand (exact, startsWith, contains)
+ * - Category (exact, contains)
+ * 
+ * Results are ranked by relevance using configurable weights:
+ * 1. Exact title match (highest priority)
+ * 2. Title starts with query
+ * 3. Title contains query
+ * 4. Token coverage in title (for multi-word queries)
+ * 5. Brand matches (exact > startsWith > contains)
+ * 6. Category matches (exact > contains)
+ * 7. User preference boosts (optional, small)
  * 
  * Only returns active, available products (in_stock = true)
- * Results are deduplicated by SKU (or product_id if no SKU)
+ * Results are deduplicated by SKU and sorted by relevance score
  * 
  * @param query - Search query string
  * @param limit - Maximum number of results to return (default: 50)
- * @returns Array of search results with product, brand, category, and store information
+ * @param userPrefs - User preferences for ranking boost (optional, non-breaking). Can be UserPreferences or RankingUserPrefs
+ * @param sortMode - Sort mode: "relevance" (default), "price_asc", or "price_desc"
+ * @returns Array of search results sorted by relevance, with product, brand, category, and store information
  */
 export async function searchProducts(
   query: string,
-  limit: number = 50
+  limit: number = 50,
+  userPrefs?: UserPreferences | RankingUserPrefs | null,
+  sortMode: SortMode = "relevance"
 ): Promise<SearchResult[]> {
   if (!query || query.trim().length === 0) {
     return [];
@@ -703,6 +743,7 @@ export async function searchProducts(
     const productIdsByBrand = await searchProductsByBrand(query);
 
     // Combine product IDs from title and brand searches
+    // Keep separate arrays for ranking purposes
     const allProductIds = [...new Set([...productIdsByTitle, ...productIdsByBrand])];
 
     // If no matches found in products or categories, return empty
@@ -750,7 +791,7 @@ export async function searchProducts(
         : Promise.resolve(new Map<string, StoreLocation>()), // Return empty map if no store IDs
     ]);
 
-    // Step 6: Build search results and deduplicate by SKU/product_id
+    // Step 6: Build search results, calculate relevance scores, and deduplicate by SKU/product_id
     const resultsMap = new Map<string, SearchResult>();
     const seenSkus = new Set<string>();
 
@@ -780,7 +821,24 @@ export async function searchProducts(
       // Deduplicate by SKU (products always have SKU)
       const dedupeKey = product.sku;
       if (seenSkus.has(dedupeKey)) {
-        continue; // Skip duplicate
+        // If we've seen this SKU, keep the one with better stock status or lower price
+        const existing = resultsMap.get(dedupeKey);
+        if (existing) {
+          // Prefer in-stock items
+          if (doc.in_stock && !existing.inStock) {
+            // Replace with in-stock version
+          } else if (!doc.in_stock && existing.inStock) {
+            // Keep existing in-stock version
+            continue;
+          }
+          // If both have same stock status, prefer lower price
+          else if (doc.price_jmd_cents < existing.priceJmdCents) {
+            // Replace with lower price version
+          } else {
+            // Keep existing
+            continue;
+          }
+        }
       }
       seenSkus.add(dedupeKey);
 
@@ -792,15 +850,32 @@ export async function searchProducts(
         priceJmdCents: doc.price_jmd_cents,
         inStock: doc.in_stock,
         sku: product.sku,
+        // relevanceScore will be calculated by rankResults()
       };
 
       resultsMap.set(dedupeKey, result);
     }
 
-    // Step 7: Convert to array and limit results
-    const results = Array.from(resultsMap.values()).slice(0, limit);
-
-    return results;
+    // Step 7: Convert to array, rank and sort by relevance, then limit results
+    const results = Array.from(resultsMap.values());
+    
+    // Convert user preferences format if needed
+    let rankingPrefs: RankingUserPrefs | undefined = undefined;
+    if (userPrefs) {
+      if ('categoryPreferences' in userPrefs) {
+        // It's a UserPreferences object
+        rankingPrefs = convertUserPrefsToRankingPrefs(userPrefs as UserPreferences);
+      } else {
+        // It's already a RankingUserPrefs object
+        rankingPrefs = userPrefs as RankingUserPrefs;
+      }
+    }
+    
+    // Apply ranking using the new ranking module
+    const rankedResults = rankResults(results, query, rankingPrefs, sortMode);
+    
+    // Limit results
+    return rankedResults.slice(0, limit);
   } catch (error: any) {
     console.error("Error searching products:", error);
     // Return empty array on error rather than throwing
