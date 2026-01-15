@@ -6,7 +6,7 @@ import { useSearch } from "../../contexts/SearchContext";
 import { getSearchSuggestions } from "../../lib/search-service";
 
 export default function CategoriesScreen() {
-  const { performSearch } = useSearch();
+  const { performSearch, recentSearches } = useSearch();
   const [searchSuggestions, setSearchSuggestions] = useState<any[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
 
@@ -49,6 +49,8 @@ export default function CategoriesScreen() {
             suggestions={searchSuggestions}
             showSuggestions={true}
             onChangeText={setSearchQuery}
+            recentSearches={recentSearches}
+            onRecentSearchPress={(query) => performSearch(query)}
           />
         </View>
 

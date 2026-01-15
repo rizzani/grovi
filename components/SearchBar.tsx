@@ -23,6 +23,8 @@ interface SearchBarProps {
   showSuggestions?: boolean;
   autoFocus?: boolean;
   onChangeText?: (query: string) => void;
+  recentSearches?: string[];
+  onRecentSearchPress?: (query: string) => void;
 }
 
 export default function SearchBar({
@@ -33,16 +35,20 @@ export default function SearchBar({
   showSuggestions = true,
   autoFocus = false,
   onChangeText,
+  recentSearches = [],
+  onRecentSearchPress,
 }: SearchBarProps) {
   const [query, setQuery] = useState("");
   const [isFocused, setIsFocused] = useState(false);
   const [showAutocomplete, setShowAutocomplete] = useState(false);
   const inputRef = useRef<TextInput>(null);
 
-  // Show autocomplete when focused and there are suggestions
+  // Show autocomplete when focused and there are suggestions, or show recent searches when focused and input is empty
   useEffect(() => {
-    setShowAutocomplete(isFocused && showSuggestions && suggestions.length > 0 && query.length > 0);
-  }, [isFocused, suggestions, query, showSuggestions]);
+    const hasSuggestions = suggestions.length > 0 && query.length > 0;
+    const shouldShowRecent = isFocused && query.length === 0 && recentSearches.length > 0;
+    setShowAutocomplete(isFocused && showSuggestions && (hasSuggestions || shouldShowRecent));
+  }, [isFocused, suggestions, query, showSuggestions, recentSearches]);
 
   const handleSubmit = () => {
     if (query.trim()) {
@@ -85,6 +91,17 @@ export default function SearchBar({
     )
     .slice(0, 7); // Limit to 7 suggestions
 
+  const handleRecentSearchPress = (recentQuery: string) => {
+    setQuery(recentQuery);
+    setShowAutocomplete(false);
+    Keyboard.dismiss();
+    onRecentSearchPress?.(recentQuery);
+    onSearch?.(recentQuery);
+  };
+
+  const shouldShowRecentSearches = isFocused && query.length === 0 && recentSearches.length > 0;
+  const shouldShowSuggestions = query.length > 0 && filteredSuggestions.length > 0;
+
   return (
     <View style={styles.container} collapsable={false}>
       <View style={[styles.searchContainer, isFocused && styles.searchContainerFocused]}>
@@ -117,7 +134,7 @@ export default function SearchBar({
         )}
       </View>
 
-      {showAutocomplete && filteredSuggestions.length > 0 && (
+      {showAutocomplete && shouldShowSuggestions && (
         <View style={styles.autocompleteContainer} collapsable={false}>
           {filteredSuggestions.map((item, index) => (
             <TouchableOpacity
@@ -143,6 +160,35 @@ export default function SearchBar({
               />
               <Text style={styles.suggestionText} numberOfLines={1} ellipsizeMode="tail">
                 {item.text}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      )}
+
+      {showAutocomplete && shouldShowRecentSearches && (
+        <View style={styles.autocompleteContainer} collapsable={false}>
+          <View style={styles.recentSearchesHeader}>
+            <Text style={styles.recentSearchesHeaderText}>Recent Searches</Text>
+          </View>
+          {recentSearches.slice(0, 5).map((recentQuery, index) => (
+            <TouchableOpacity
+              key={`recent-${index}`}
+              style={[
+                styles.suggestionItem,
+                index === Math.min(recentSearches.length, 5) - 1 && styles.suggestionItemLast,
+              ]}
+              onPress={() => handleRecentSearchPress(recentQuery)}
+              activeOpacity={0.6}
+            >
+              <Ionicons
+                name="time-outline"
+                size={18}
+                color="#6B7280"
+                style={styles.suggestionIcon}
+              />
+              <Text style={styles.suggestionText} numberOfLines={1} ellipsizeMode="tail">
+                {recentQuery}
               </Text>
             </TouchableOpacity>
           ))}
@@ -236,5 +282,18 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: "#111827",
     flex: 1,
+  },
+  recentSearchesHeader: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: "#F3F4F6",
+  },
+  recentSearchesHeaderText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#6B7280",
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
   },
 });
