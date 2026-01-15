@@ -1,14 +1,15 @@
 import { useState, useEffect } from "react";
-import { Text, View, StyleSheet, ScrollView, ActivityIndicator } from "react-native";
+import { Text, View, StyleSheet, ScrollView, ActivityIndicator, TouchableOpacity } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useLocalSearchParams } from "expo-router";
+import { Ionicons } from "@expo/vector-icons";
 import SearchBar from "../../components/SearchBar";
 import { useSearch } from "../../contexts/SearchContext";
 import { getSearchSuggestions, searchProducts } from "../../lib/search-service";
 
 export default function SearchScreen() {
   const params = useLocalSearchParams<{ q?: string }>();
-  const { performSearch, recentSearches } = useSearch();
+  const { performSearch, recentSearches, clearRecentSearches } = useSearch();
   const [searchQuery, setSearchQuery] = useState(params.q || "");
   const [searchSuggestions, setSearchSuggestions] = useState<any[]>([]);
   const [searchResults, setSearchResults] = useState<any[]>([]);
@@ -71,6 +72,8 @@ export default function SearchScreen() {
           showSuggestions={true}
           onChangeText={setSearchQuery}
           autoFocus={!params.q}
+          recentSearches={recentSearches}
+          onRecentSearchPress={(query) => performSearch(query)}
         />
       </View>
 
@@ -97,11 +100,27 @@ export default function SearchScreen() {
           </View>
         ) : !searchQuery && recentSearches.length > 0 ? (
           <View style={styles.recentSearchesContainer}>
-            <Text style={styles.sectionTitle}>Recent Searches</Text>
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>Recent Searches</Text>
+              <TouchableOpacity
+                onPress={clearRecentSearches}
+                activeOpacity={0.7}
+                style={styles.clearButton}
+              >
+                <Text style={styles.clearButtonText}>Clear</Text>
+              </TouchableOpacity>
+            </View>
             {recentSearches.map((query, index) => (
-              <View key={index} style={styles.recentSearchItem}>
+              <TouchableOpacity
+                key={index}
+                style={styles.recentSearchItem}
+                onPress={() => performSearch(query)}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="time-outline" size={18} color="#6B7280" style={styles.recentSearchIcon} />
                 <Text style={styles.recentSearchText}>{query}</Text>
-              </View>
+                <Ionicons name="arrow-forward" size={18} color="#9CA3AF" style={styles.recentSearchArrow} />
+              </TouchableOpacity>
             ))}
           </View>
         ) : !searchQuery ? (
@@ -170,21 +189,44 @@ const styles = StyleSheet.create({
   recentSearchesContainer: {
     paddingTop: 8,
   },
+  sectionHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 16,
+  },
   sectionTitle: {
     fontSize: 18,
     fontWeight: "600",
     color: "#111827",
-    marginBottom: 16,
+  },
+  clearButton: {
+    paddingVertical: 4,
+    paddingHorizontal: 12,
+  },
+  clearButtonText: {
+    fontSize: 14,
+    color: "#10B981",
+    fontWeight: "500",
   },
   recentSearchItem: {
+    flexDirection: "row",
+    alignItems: "center",
     paddingVertical: 12,
     paddingHorizontal: 16,
     backgroundColor: "#F9FAFB",
     borderRadius: 8,
     marginBottom: 8,
   },
+  recentSearchIcon: {
+    marginRight: 12,
+  },
   recentSearchText: {
+    flex: 1,
     fontSize: 16,
     color: "#111827",
+  },
+  recentSearchArrow: {
+    marginLeft: 8,
   },
 });

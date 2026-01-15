@@ -36,7 +36,7 @@ function SectionHeader({
 export default function HomeScreen() {
   const deliveryAddress = "6382 East Greater Parkway";
   const { userId } = useUser();
-  const { performSearch } = useSearch();
+  const { performSearch, recentSearches } = useSearch();
   const [categoryPreferences, setCategoryPreferences] = useState<string[]>([]);
   const [isLoadingPreferences, setIsLoadingPreferences] = useState(true);
   const [searchSuggestions, setSearchSuggestions] = useState<any[]>([]);
@@ -121,6 +121,8 @@ export default function HomeScreen() {
             suggestions={searchSuggestions}
             showSuggestions={true}
             onChangeText={setSearchQuery}
+            recentSearches={recentSearches}
+            onRecentSearchPress={(query) => performSearch(query)}
           />
         </View>
 
