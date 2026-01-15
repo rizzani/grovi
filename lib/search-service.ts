@@ -5,8 +5,10 @@ import {
   rankResults,
   RankingUserPrefs,
   SortMode,
+  normalizeText,
 } from "./search/ranking";
 import { UserPreferences } from "./preferences-service";
+import { normalizeJamaicanTerms, expandQueryWithSynonyms } from "./search/jamaican-terms";
 
 /**
  * Core Search Backend Service
@@ -124,6 +126,7 @@ function convertUserPrefsToRankingPrefs(
 /**
  * Get search suggestions based on query from Appwrite
  * Fetches real suggestions from products, categories, and brands
+ * Includes typo tolerance and Jamaican term normalization
  */
 export async function getSearchSuggestions(
   query: string,
@@ -133,7 +136,8 @@ export async function getSearchSuggestions(
     return [];
   }
 
-  const normalizedQuery = query.toLowerCase().trim();
+  // Normalize query with Jamaican terms for better matching
+  const normalizedQuery = normalizeText(normalizeJamaicanTerms(query.toLowerCase().trim()));
   const suggestions: SearchSuggestion[] = [];
 
   try {
@@ -333,15 +337,19 @@ async function getActiveStoreLocationIds(): Promise<string[]> {
 /**
  * Search products by title (partial match)
  * Uses full-text search on 'title' field (idx_title_fulltext index exists)
+ * Includes Jamaican term normalization for better matching
  */
 async function searchProductsByTitle(
   query: string,
   limit: number = 100
 ): Promise<string[]> {
   try {
-    const normalizedQuery = query.toLowerCase().trim();
+    // Normalize query with Jamaican terms for better matching
+    const normalizedQuery = normalizeText(normalizeJamaicanTerms(query.toLowerCase().trim()));
     
     // Use full-text search on 'title' field (index exists: idx_title_fulltext)
+    // Note: Appwrite's full-text search handles basic matching, but fuzzy matching
+    // and synonym expansion are handled in ranking (in-memory after fetching results)
     const response = await databases.listDocuments(
       databaseId,
       PRODUCTS_COLLECTION_ID,
@@ -687,18 +695,24 @@ async function queryStoreLocationProducts(
  * Perform a global product search across all active stores
  * 
  * Supports searching by:
- * - Product name (exact, startsWith, contains, and token-based matches)
- * - Brand (exact, startsWith, contains)
- * - Category (exact, contains)
+ * - Product name (exact, startsWith, contains, token-based, and fuzzy matches)
+ * - Brand (exact, startsWith, contains, fuzzy)
+ * - Category (exact, contains, fuzzy)
+ * 
+ * Includes typo tolerance and Jamaican naming variations:
+ * - Minor spelling errors are tolerated (fuzzy matching)
+ * - Common Jamaican product terms and variations are supported
+ * - Synonyms for known local terms (config-based)
  * 
  * Results are ranked by relevance using configurable weights:
  * 1. Exact title match (highest priority)
  * 2. Title starts with query
  * 3. Title contains query
  * 4. Token coverage in title (for multi-word queries)
- * 5. Brand matches (exact > startsWith > contains)
- * 6. Category matches (exact > contains)
- * 7. User preference boosts (optional, small)
+ * 5. Fuzzy matches (typo tolerance)
+ * 6. Brand matches (exact > startsWith > contains > fuzzy)
+ * 7. Category matches (exact > contains > fuzzy)
+ * 8. User preference boosts (optional, small)
  * 
  * Only returns active, available products (in_stock = true)
  * Results are deduplicated by SKU and sorted by relevance score
@@ -720,6 +734,9 @@ export async function searchProducts(
   }
 
   try {
+    // Normalize query with Jamaican terms before searching
+    // This ensures "corn beef" matches "corned beef", "graece" matches "grace", etc.
+    const normalizedQuery = normalizeText(normalizeJamaicanTerms(query));
     // Step 1: Get all active store location IDs (optional - search works without it)
     const activeStoreLocationIds = await getActiveStoreLocationIds();
     
@@ -733,14 +750,15 @@ export async function searchProducts(
     }
 
     // Step 2: Search for matching products, brands, and categories in parallel
+    // Use normalized query for better matching with Jamaican terms
     const [productIdsByTitle, categoryIds] = await Promise.all([
-      searchProductsByTitle(query),
-      searchCategoriesByName(query),
+      searchProductsByTitle(normalizedQuery),
+      searchCategoriesByName(normalizedQuery),
     ]);
 
     // Step 2b: Search products by brand and get matching brand names
-    const matchingBrands = await getMatchingBrands(query);
-    const productIdsByBrand = await searchProductsByBrand(query);
+    const matchingBrands = await getMatchingBrands(normalizedQuery);
+    const productIdsByBrand = await searchProductsByBrand(normalizedQuery);
 
     // Combine product IDs from title and brand searches
     // Keep separate arrays for ranking purposes
@@ -872,6 +890,8 @@ export async function searchProducts(
     }
     
     // Apply ranking using the new ranking module
+    // Ranking includes fuzzy matching and synonym handling for typo tolerance
+    // The original query is passed for ranking, but normalization happens inside ranking
     const rankedResults = rankResults(results, query, rankingPrefs, sortMode);
     
     // Limit results
