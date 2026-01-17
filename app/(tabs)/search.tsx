@@ -1,12 +1,16 @@
-import { useState, useEffect } from "react";
-import { Text, View, StyleSheet, ScrollView, ActivityIndicator, TouchableOpacity } from "react-native";
+import { useState, useEffect, useMemo, useRef } from "react";
+import { Text, View, StyleSheet, ScrollView, ActivityIndicator, TouchableOpacity, Image } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useLocalSearchParams } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
+import Constants from "expo-constants";
 import SearchBar from "../../components/SearchBar";
+import ProductFilters, { FilterState } from "../../components/ProductFilters";
 import { useSearch } from "../../contexts/SearchContext";
 import { useUser } from "../../contexts/UserContext";
-import { getSearchSuggestions, searchProducts } from "../../lib/search-service";
+import { getSearchSuggestions, searchProducts, SearchResult } from "../../lib/search-service";
+import { applyFilters, hasActiveFilters } from "../../lib/filter-utils";
+import { getAddresses } from "../../lib/profile-service";
 
 export default function SearchScreen() {
   const params = useLocalSearchParams<{ q?: string }>();
@@ -14,8 +18,55 @@ export default function SearchScreen() {
   const { userId } = useUser();
   const [searchQuery, setSearchQuery] = useState(params.q || "");
   const [searchSuggestions, setSearchSuggestions] = useState<any[]>([]);
-  const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [allSearchResults, setAllSearchResults] = useState<SearchResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
+  const [showFilters, setShowFilters] = useState(false);
+  const [filters, setFilters] = useState<FilterState>({
+    brands: [],
+    categories: [],
+    partnerStores: [],
+    inStock: null,
+    quickDelivery: null,
+    priceRange: {
+      min: null,
+      max: null,
+    },
+    dietaryRestrictions: {
+      vegan: false,
+      vegetarian: false,
+      glutenFree: false,
+    },
+  });
+  const [userDeliveryAddress, setUserDeliveryAddress] = useState<{ parish?: string; community?: string } | null>(null);
+  const scrollViewRef = useRef<ScrollView>(null);
+
+  // Load user's default delivery address
+  useEffect(() => {
+    const loadDefaultAddress = async () => {
+      if (!userId) {
+        setUserDeliveryAddress(null);
+        return;
+      }
+
+      try {
+        const addresses = await getAddresses(userId);
+        const defaultAddress = addresses.find((addr) => addr.default);
+        if (defaultAddress) {
+          setUserDeliveryAddress({
+            parish: defaultAddress.parish,
+            community: defaultAddress.community,
+          });
+        } else {
+          setUserDeliveryAddress(null);
+        }
+      } catch (error) {
+        console.error("Error loading default address:", error);
+        setUserDeliveryAddress(null);
+      }
+    };
+
+    loadDefaultAddress();
+  }, [userId]);
 
   // Update query when params change
   useEffect(() => {
@@ -42,21 +93,61 @@ export default function SearchScreen() {
 
   const handleSearch = async (query: string) => {
     if (!query.trim()) {
-      setSearchResults([]);
+      setAllSearchResults([]);
+      // Reset filters when search query is cleared
+      setFilters({
+        brands: [],
+        categories: [],
+        partnerStores: [],
+        inStock: null,
+        quickDelivery: null,
+        priceRange: {
+          min: null,
+          max: null,
+        },
+        dietaryRestrictions: {
+          vegan: false,
+          vegetarian: false,
+          glutenFree: false,
+        },
+      });
       return;
     }
 
     setIsSearching(true);
     try {
       const results = await searchProducts(query, 50, undefined, "relevance", userId || null);
-      setSearchResults(results);
+      setAllSearchResults(results);
+      // Reset price filters on new search, but keep other filters
+      setFilters((prev) => ({
+        ...prev,
+        priceRange: {
+          min: null,
+          max: null,
+        },
+      }));
     } catch (error) {
       console.error("Search error:", error);
-      setSearchResults([]);
+      setAllSearchResults([]);
     } finally {
       setIsSearching(false);
     }
   };
+
+  // Apply filters to search results
+  const filteredResults = useMemo(() => {
+    if (!allSearchResults || allSearchResults.length === 0) {
+      return [];
+    }
+    return applyFilters(allSearchResults, filters, userDeliveryAddress);
+  }, [allSearchResults, filters, userDeliveryAddress]);
+
+  // Scroll to top when search query changes (new search performed)
+  useEffect(() => {
+    if (searchQuery.trim() && scrollViewRef.current) {
+      scrollViewRef.current.scrollTo({ y: 0, animated: false });
+    }
+  }, [searchQuery]);
 
   const handleSuggestionSelect = (suggestion: any) => {
     performSearch(suggestion.text);
@@ -73,14 +164,63 @@ export default function SearchScreen() {
           suggestions={searchSuggestions}
           showSuggestions={true}
           onChangeText={setSearchQuery}
-          autoFocus={!params.q}
+          value={searchQuery}
+          autoFocus={false}
           recentSearches={recentSearches}
           onRecentSearchPress={(query) => performSearch(query)}
         />
+        {/* Filter Button and Results Count */}
+        {searchQuery.trim() && allSearchResults.length > 0 && (
+          <View style={styles.filterBar}>
+            <TouchableOpacity
+              style={[styles.filterButton, hasActiveFilters(filters) && styles.filterButtonActive]}
+              onPress={() => setShowFilters(true)}
+              activeOpacity={0.7}
+            >
+              <Ionicons
+                name="filter"
+                size={18}
+                color={hasActiveFilters(filters) ? "#FFFFFF" : "#374151"}
+              />
+              <Text
+                style={[
+                  styles.filterButtonText,
+                  hasActiveFilters(filters) && styles.filterButtonTextActive,
+                ]}
+              >
+                Filters
+              </Text>
+              {hasActiveFilters(filters) && (
+                <View style={styles.activeFilterBadge}>
+                  <Text style={styles.activeFilterBadgeText}>
+                    {[
+                      filters.brands.length,
+                      filters.categories.length,
+                      filters.partnerStores.length,
+                      filters.inStock !== null ? 1 : 0,
+                      filters.quickDelivery !== null ? 1 : 0,
+                      filters.priceRange.min !== null || filters.priceRange.max !== null ? 1 : 0,
+                      filters.dietaryRestrictions.vegan ? 1 : 0,
+                      filters.dietaryRestrictions.vegetarian ? 1 : 0,
+                      filters.dietaryRestrictions.glutenFree ? 1 : 0,
+                    ].reduce((a, b) => a + b, 0)}
+                  </Text>
+                </View>
+              )}
+            </TouchableOpacity>
+            <Text style={styles.resultsCount}>
+              {hasActiveFilters(filters) 
+                ? `${filteredResults.length} of ${allSearchResults.length} results`
+                : `${allSearchResults.length} ${allSearchResults.length === 1 ? "result" : "results"}`
+              }
+            </Text>
+          </View>
+        )}
       </View>
 
       {/* Scrollable Content */}
       <ScrollView
+        ref={scrollViewRef}
         style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
@@ -93,14 +233,47 @@ export default function SearchScreen() {
             <ActivityIndicator size="large" color="#10B981" />
             <Text style={styles.loadingText}>Searching...</Text>
           </View>
-        ) : searchQuery && searchResults.length === 0 ? (
+        ) : searchQuery.trim() && filteredResults.length === 0 && allSearchResults.length > 0 ? (
+          <View style={styles.emptyContainer}>
+            <Text style={styles.emptyTitle}>No results match your filters</Text>
+            <Text style={styles.emptySubtitle}>
+              Try adjusting your filters or search for something else
+            </Text>
+            {hasActiveFilters(filters) && (
+              <TouchableOpacity
+                style={styles.clearFiltersButton}
+                onPress={() => {
+                  setFilters({
+                    brands: [],
+                    categories: [],
+                    partnerStores: [],
+                    inStock: null,
+                    quickDelivery: null,
+                    priceRange: {
+                      min: null,
+                      max: null,
+                    },
+                    dietaryRestrictions: {
+                      vegan: false,
+                      vegetarian: false,
+                      glutenFree: false,
+                    },
+                  });
+                }}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.clearFiltersButtonText}>Clear Filters</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        ) : searchQuery.trim() && allSearchResults.length === 0 ? (
           <View style={styles.emptyContainer}>
             <Text style={styles.emptyTitle}>No results found</Text>
             <Text style={styles.emptySubtitle}>
               Try searching for something else
             </Text>
           </View>
-        ) : !searchQuery && recentSearches.length > 0 ? (
+        ) : !searchQuery.trim() && allSearchResults.length === 0 && recentSearches.length > 0 ? (
           <View style={styles.recentSearchesContainer}>
             <View style={styles.sectionHeader}>
               <Text style={styles.sectionTitle}>Recent Searches</Text>
@@ -125,7 +298,7 @@ export default function SearchScreen() {
               </TouchableOpacity>
             ))}
           </View>
-        ) : !searchQuery ? (
+        ) : !searchQuery.trim() && allSearchResults.length === 0 ? (
           <View style={styles.emptyContainer}>
             <Text style={styles.emptyTitle}>Search</Text>
             <Text style={styles.emptySubtitle}>
@@ -133,7 +306,27 @@ export default function SearchScreen() {
             </Text>
           </View>
         ) : null}
+
+        {/* Display filtered results when available */}
+        {searchQuery.trim() && filteredResults.length > 0 && (
+          <View style={styles.resultsContainer}>
+            <View style={styles.productsGrid}>
+              {filteredResults.map((result, index) => (
+                <ProductCard key={`${result.sku}-${index}`} result={result} />
+              ))}
+            </View>
+          </View>
+        )}
       </ScrollView>
+
+      {/* Filters Modal */}
+      <ProductFilters
+        visible={showFilters}
+        onClose={() => setShowFilters(false)}
+        onFiltersChange={setFilters}
+        searchResults={allSearchResults}
+        initialFilters={filters}
+      />
     </SafeAreaView>
   );
 }
@@ -231,4 +424,386 @@ const styles = StyleSheet.create({
   recentSearchArrow: {
     marginLeft: 8,
   },
+  filterBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginTop: 12,
+    gap: 12,
+    flexWrap: "wrap",
+  },
+  filterButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 20,
+    backgroundColor: "#F3F4F6",
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    gap: 6,
+  },
+  filterButtonActive: {
+    backgroundColor: "#10B981",
+    borderColor: "#10B981",
+  },
+  filterButtonText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#374151",
+  },
+  filterButtonTextActive: {
+    color: "#FFFFFF",
+  },
+  activeFilterBadge: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 10,
+    minWidth: 20,
+    height: 20,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 6,
+  },
+  activeFilterBadgeText: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#10B981",
+  },
+  resultsCount: {
+    fontSize: 14,
+    color: "#6B7280",
+    fontWeight: "500",
+  },
+  resultsContainer: {
+    marginTop: 16,
+  },
+  productCard: {
+    flexDirection: "row",
+    backgroundColor: "#FFFFFF",
+    borderRadius: 16,
+    overflow: "hidden",
+    marginBottom: 12,
+    minHeight: 140,
+    shadowColor: "#000",
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  productCardOutOfStock: {
+    opacity: 0.65,
+  },
+  productImageContainer: {
+    width: 140,
+    height: 140,
+    backgroundColor: "#F9FAFB",
+    position: "relative",
+    alignItems: "center",
+    justifyContent: "center",
+    borderRightWidth: 1,
+    borderRightColor: "#F3F4F6",
+  },
+  productImage: {
+    width: "100%",
+    height: "100%",
+  },
+  productImagePlaceholder: {
+    width: "100%",
+    height: "100%",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#F3F4F6",
+  },
+  stockBadge: {
+    position: "absolute",
+    top: 6,
+    right: 6,
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    borderRadius: 4,
+    gap: 3,
+  },
+  stockBadgeInStock: {
+    backgroundColor: "rgba(16, 185, 129, 0.85)",
+  },
+  stockBadgeOutOfStock: {
+    backgroundColor: "rgba(239, 68, 68, 0.85)",
+  },
+  stockBadgeText: {
+    fontSize: 8,
+    fontWeight: "600",
+    color: "#FFFFFF",
+    letterSpacing: 0.3,
+  },
+  productInfo: {
+    flex: 1,
+    padding: 14,
+    justifyContent: "space-between",
+  },
+  productHeader: {
+    marginBottom: 8,
+  },
+  productTitle: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#111827",
+    marginBottom: 4,
+    lineHeight: 22,
+  },
+  productBrand: {
+    fontSize: 13,
+    color: "#6B7280",
+    fontWeight: "400",
+  },
+  productDetails: {
+    gap: 6,
+  },
+  storeInfo: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+  },
+  productStore: {
+    fontSize: 12,
+    color: "#9CA3AF",
+    flex: 1,
+  },
+  productFooter: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+    justifyContent: "space-between",
+    marginTop: 8,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: "#F3F4F6",
+  },
+  productPrice: {
+    fontSize: 20,
+    fontWeight: "700",
+    color: "#10B981",
+  },
+  categoryBadge: {
+    backgroundColor: "#F0FDF4",
+    borderWidth: 1,
+    borderColor: "#D1FAE5",
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+    maxWidth: "45%",
+  },
+  categoryBadgeText: {
+    fontSize: 10,
+    fontWeight: "600",
+    color: "#065F46",
+  },
+  clearFiltersButton: {
+    marginTop: 16,
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    backgroundColor: "#10B981",
+    borderRadius: 12,
+    alignSelf: "center",
+  },
+  clearFiltersButtonText: {
+    color: "#FFFFFF",
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  resultsHeaderContainer: {
+    marginBottom: 16,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: "#E5E7EB",
+  },
+  resultsHeader: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#111827",
+  },
+  resultsSubtext: {
+    fontSize: 16,
+    fontWeight: "400",
+    color: "#6B7280",
+  },
+  productsGrid: {
+    gap: 16,
+  },
 });
+
+// Product Card Component
+interface ProductCardProps {
+  result: SearchResult;
+}
+
+/**
+ * Transform Appwrite image URL with optimized parameters for list display
+ * Appwrite Storage API: https://appwrite.io/docs/products/storage/images
+ * NOTE: Transformations only work with /preview endpoint, not /view
+ */
+function getTransformedImageUrl(imageUrl: string | undefined): string | undefined {
+  if (!imageUrl) return undefined;
+
+  // Check if it's an Appwrite storage URL
+  // Appwrite URLs typically look like: /v1/storage/buckets/[bucketId]/files/[fileId]/view
+  const isAppwriteStorageUrl = imageUrl.includes("/storage/buckets/") && imageUrl.includes("/files/");
+  
+  if (!isAppwriteStorageUrl) {
+    // Not an Appwrite URL, return as-is (might be external URL or placeholder)
+    if (__DEV__) {
+      console.log("Not an Appwrite URL, skipping transformation:", imageUrl);
+    }
+    return imageUrl;
+  }
+
+  // IMPORTANT: Appwrite image transformations only work with /preview endpoint
+  // Replace /view with /preview if present, or ensure /preview is used
+  let transformedUrl = imageUrl;
+  
+  // Check if URL already has /preview or /view
+  if (transformedUrl.includes("/preview")) {
+    // Already using preview endpoint, no change needed
+  } else if (transformedUrl.includes("/view")) {
+    // Replace /view with /preview (transformations require preview endpoint)
+    transformedUrl = transformedUrl.replace("/view", "/preview");
+  } else {
+    // URL might be like: /v1/storage/buckets/[id]/files/[id] or /v1/storage/buckets/[id]/files/[id]?
+    // Need to add /preview before any query params
+    const queryIndex = transformedUrl.indexOf("?");
+    const hashIndex = transformedUrl.indexOf("#");
+    const insertIndex = queryIndex !== -1 ? queryIndex : (hashIndex !== -1 ? hashIndex : transformedUrl.length);
+    
+    // Insert /preview before query params/hash, or at the end
+    transformedUrl = transformedUrl.substring(0, insertIndex) + "/preview" + transformedUrl.substring(insertIndex);
+  }
+
+  // Get project ID for Appwrite URLs (required for preview)
+  const projectId = Constants.expoConfig?.extra?.EXPO_PUBLIC_APPWRITE_PROJECT_ID || 
+    process.env.EXPO_PUBLIC_APPWRITE_PROJECT_ID || "";
+
+  // For list view cards (180px height), optimize images:
+  // - Width: 360px (2x for retina displays, prevents upscaling blur)
+  // - Height: 360px for square aspect ratio (good for product thumbnails)
+  // - Quality: 85% for good balance of quality and file size
+  // - Gravity: center to focus on center of image when cropping
+  const transformations = new URLSearchParams();
+  
+  // Add project parameter if available (required for Appwrite preview)
+  if (projectId) {
+    transformations.set("project", projectId);
+  }
+  
+  transformations.set("width", "360");
+  transformations.set("height", "360");
+  transformations.set("quality", "85");
+  transformations.set("gravity", "center");
+
+  // Handle URLs that might already have query params
+  // Appwrite URLs can be absolute (https://...) or relative (/v1/storage/...)
+  const isAbsoluteUrl = transformedUrl.startsWith("http") || transformedUrl.startsWith("//");
+  
+  if (isAbsoluteUrl) {
+    // Parse absolute URL
+    try {
+      const url = new URL(transformedUrl);
+      // Merge existing params with transformations (transformations override)
+      transformations.forEach((value, key) => {
+        url.searchParams.set(key, value);
+      });
+      return url.toString();
+    } catch {
+      // If URL parsing fails, append params manually
+      const separator = transformedUrl.includes("?") ? "&" : "?";
+      return `${transformedUrl}${separator}${transformations.toString()}`;
+    }
+  } else {
+    // Relative URL - append params
+    const separator = transformedUrl.includes("?") ? "&" : "?";
+    return `${transformedUrl}${separator}${transformations.toString()}`;
+  }
+}
+
+function ProductCard({ result }: ProductCardProps) {
+  const router = useRouter();
+  
+  const handlePress = () => {
+    // TODO: Navigate to product detail page
+    // router.push(`/product/${result.product.$id}`);
+  };
+
+  const priceFormatted = `$${(result.priceJmdCents / 100).toFixed(2)}`;
+  const originalUrl = result.product.primary_image_url;
+  const imageUri = getTransformedImageUrl(originalUrl);
+  
+  // Debug: Log URLs to see what we're working with
+  if (__DEV__ && originalUrl) {
+    console.log("Original URL:", originalUrl);
+    console.log("Transformed URL:", imageUri);
+  }
+
+  return (
+    <TouchableOpacity
+      style={[styles.productCard, !result.inStock && styles.productCardOutOfStock]}
+      onPress={handlePress}
+      activeOpacity={0.7}
+      disabled={!result.inStock}
+    >
+      {/* Product Image - Left Side */}
+      <View style={styles.productImageContainer}>
+        {imageUri ? (
+          <Image
+            source={{ uri: imageUri }}
+            style={styles.productImage}
+            resizeMode="contain"
+          />
+        ) : (
+          <View style={styles.productImagePlaceholder}>
+            <Ionicons name="cube-outline" size={40} color="#D1D5DB" />
+          </View>
+        )}
+      </View>
+
+      {/* Product Info - Right Side */}
+      <View style={styles.productInfo}>
+        {/* Header Section */}
+        <View style={styles.productHeader}>
+          <Text style={styles.productTitle} numberOfLines={2}>
+            {result.product.title}
+          </Text>
+          {result.brand && (
+            <Text style={styles.productBrand} numberOfLines={1}>
+              {result.brand}
+            </Text>
+          )}
+        </View>
+
+        {/* Details Section */}
+        <View style={styles.productDetails}>
+          {/* Store Info */}
+          <View style={styles.storeInfo}>
+            <Ionicons name="storefront" size={12} color="#9CA3AF" />
+            <Text style={styles.productStore} numberOfLines={1}>
+              {result.storeLocation.display_name || result.storeLocation.name}
+            </Text>
+          </View>
+        </View>
+
+        {/* Footer Section - Price and Category */}
+        <View style={styles.productFooter}>
+          <Text style={styles.productPrice}>{priceFormatted}</Text>
+          {result.category && (
+            <View style={styles.categoryBadge}>
+              <Text style={styles.categoryBadgeText} numberOfLines={1}>
+                {result.category.name}
+              </Text>
+            </View>
+          )}
+        </View>
+      </View>
+    </TouchableOpacity>
+  );
+}
