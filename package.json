@@ -10,7 +10,10 @@
     "web": "expo start --web",
     "lint": "expo lint",
     "setup-database": "tsx scripts/setup-database.ts",
-    "inspect-database": "tsx scripts/inspect-database.ts"
+    "inspect-database": "tsx scripts/inspect-database.ts",
+    "test:performance": "tsx lib/search/performance.test.ts",
+    "test:load": "tsx lib/search/load.test.ts",
+    "test:ranking": "tsx lib/search/ranking.test.ts"
   },
   "dependencies": {
     "@expo/metro-runtime": "~6.1.2",
