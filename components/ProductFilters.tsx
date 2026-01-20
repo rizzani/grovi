@@ -111,6 +111,7 @@ export default function ProductFilters({
 
   const clearFilters = () => {
     onFiltersChange({});
+    // Note: Sort mode is managed separately and can be cleared from SearchContext
   };
 
   const removeBrandFilter = (brand: string) => {
