@@ -107,6 +107,26 @@ export interface SearchResult {
   relevanceScore?: number; // Optional relevance score for debugging
 }
 
+/**
+ * Filter options for product search
+ */
+export interface ProductFilters {
+  /** Filter by specific brand names */
+  brands?: string[];
+  /** Filter by category IDs */
+  categoryIds?: string[];
+  /** Minimum price in JMD cents */
+  minPrice?: number;
+  /** Maximum price in JMD cents */
+  maxPrice?: number;
+  /** Filter by availability (true = in stock only, false = all, undefined = in stock only) */
+  inStock?: boolean;
+  /** Filter stores by delivery address (parish) */
+  deliveryParish?: string;
+  /** Filter stores by specific store location IDs */
+  storeLocationIds?: string[];
+}
+
 // Ranking logic has been moved to lib/search/ranking.ts
 // Import rankResults, RankingUserPrefs, and SortMode from there
 
@@ -254,6 +274,49 @@ export async function getSearchSuggestions(
     return Array.from(uniqueSuggestions.values());
   } catch (error: any) {
     console.error("Error fetching search suggestions:", error);
+    return [];
+  }
+}
+
+/**
+ * Get all categories for filter selection
+ */
+export async function getAllCategories(): Promise<Category[]> {
+  try {
+    const response = await databases.listDocuments(
+      databaseId,
+      CATEGORIES_COLLECTION_ID,
+      [Query.limit(1000)]
+    );
+    return response.documents as Category[];
+  } catch (error: any) {
+    console.error("Error fetching all categories:", error);
+    return [];
+  }
+}
+
+/**
+ * Get all unique brands from products for filter selection
+ */
+export async function getAllBrands(): Promise<string[]> {
+  try {
+    // Fetch a sample of products to extract brands
+    const response = await databases.listDocuments(
+      databaseId,
+      PRODUCTS_COLLECTION_ID,
+      [Query.limit(1000)]
+    );
+    
+    const brands = new Set<string>();
+    response.documents.forEach((doc: any) => {
+      if (doc.brand && doc.brand.trim()) {
+        brands.add(doc.brand);
+      }
+    });
+    
+    return Array.from(brands).sort();
+  } catch (error: any) {
+    console.error("Error fetching all brands:", error);
     return [];
   }
 }
@@ -600,6 +663,29 @@ async function getStoreLocationsByIds(storeLocationIds: string[]): Promise<Map<s
 }
 
 /**
+ * Get store location IDs that deliver to a specific parish
+ */
+async function getStoreLocationIdsByParish(parish: string): Promise<string[]> {
+  try {
+    const response = await databases.listDocuments(
+      databaseId,
+      STORE_LOCATIONS_COLLECTION_ID,
+      [
+        Query.equal("is_active", true),
+        Query.equal("parish", parish),
+        Query.limit(1000),
+      ]
+    );
+    return response.documents.map((doc: any) => doc.$id);
+  } catch (error: any) {
+    console.error("Error fetching store locations by parish:", error);
+    // If filtering by parish fails, return empty array (strict filtering)
+    // This ensures we don't show products from stores that don't deliver to the address
+    return [];
+  }
+}
+
+/**
  * Query store_location_product with multiple filters
  * Appwrite doesn't support OR queries directly, so we query separately and combine
  */
@@ -607,9 +693,29 @@ async function queryStoreLocationProducts(
   activeStoreLocationIds: string[],
   productIds: string[],
   brandIds: string[], // Not used since brands are in products, but kept for API compatibility
-  categoryIds: string[]
+  categoryIds: string[],
+  filters?: ProductFilters
 ): Promise<StoreLocationProduct[]> {
   const allResults = new Map<string, StoreLocationProduct>();
+
+  // Determine store location filter: delivery address > specific store IDs > active stores
+  let storeLocationIdsToUse = activeStoreLocationIds;
+  if (filters?.storeLocationIds && filters.storeLocationIds.length > 0) {
+    storeLocationIdsToUse = filters.storeLocationIds;
+  } else if (filters?.deliveryParish) {
+    // Filter stores by delivery parish
+    const parishStoreIds = await getStoreLocationIdsByParish(filters.deliveryParish);
+    if (parishStoreIds.length > 0) {
+      // Intersect with active stores (only use stores that are both active and deliver to parish)
+      storeLocationIdsToUse = activeStoreLocationIds.filter(id => parishStoreIds.includes(id));
+    } else {
+      // No stores deliver to this parish, return empty results
+      return [];
+    }
+  }
+
+  // Determine stock filter: defaults to true (in stock only) if not explicitly set to false
+  const inStockFilter = filters?.inStock !== false;
 
   // Query by product_id if we have product matches
   if (productIds.length > 0) {
@@ -618,16 +724,22 @@ async function queryStoreLocationProducts(
     for (let i = 0; i < productIds.length; i += batchSize) {
       const batch = productIds.slice(i, i + batchSize);
       try {
-        const queries = [
-          Query.equal("in_stock", true),
-          Query.equal("product_id", batch),
-          Query.limit(100),
-        ];
+        const queries: any[] = [];
         
-        // Only filter by store_location_id if we have active stores
-        if (activeStoreLocationIds.length > 0) {
-          queries.splice(1, 0, Query.equal("store_location_id", activeStoreLocationIds));
+        // Apply stock filter
+        if (inStockFilter) {
+          queries.push(Query.equal("in_stock", true));
         }
+        
+        // Filter by product IDs
+        queries.push(Query.equal("product_id", batch));
+        
+        // Only filter by store_location_id if we have store locations to filter by
+        if (storeLocationIdsToUse.length > 0) {
+          queries.push(Query.equal("store_location_id", storeLocationIdsToUse));
+        }
+        
+        queries.push(Query.limit(100));
         
         const response = await databases.listDocuments(
           databaseId,
@@ -652,16 +764,22 @@ async function queryStoreLocationProducts(
     for (let i = 0; i < categoryIds.length; i += batchSize) {
       const batch = categoryIds.slice(i, i + batchSize);
       try {
-        const queries = [
-          Query.equal("in_stock", true),
-          Query.equal("category_leaf_id", batch),
-          Query.limit(100),
-        ];
+        const queries: any[] = [];
         
-        // Only filter by store_location_id if we have active stores
-        if (activeStoreLocationIds.length > 0) {
-          queries.splice(1, 0, Query.equal("store_location_id", activeStoreLocationIds));
+        // Apply stock filter
+        if (inStockFilter) {
+          queries.push(Query.equal("in_stock", true));
         }
+        
+        // Filter by category
+        queries.push(Query.equal("category_leaf_id", batch));
+        
+        // Only filter by store_location_id if we have store locations to filter by
+        if (storeLocationIdsToUse.length > 0) {
+          queries.push(Query.equal("store_location_id", storeLocationIdsToUse));
+        }
+        
+        queries.push(Query.limit(100));
         
         const response = await databases.listDocuments(
           databaseId,
@@ -678,13 +796,17 @@ async function queryStoreLocationProducts(
   }
 
   // Filter by category_path_ids in memory (Appwrite doesn't support array contains)
-  const filteredResults = Array.from(allResults.values()).filter((doc) => {
-    // If we're searching by category, check category_path_ids
-    if (categoryIds.length > 0 && doc.category_path_ids) {
-      return doc.category_path_ids.some((id) => categoryIds.includes(id));
-    }
-    return true;
-  });
+  let filteredResults = Array.from(allResults.values());
+  
+  if (categoryIds.length > 0) {
+    filteredResults = filteredResults.filter((doc) => {
+      // If we're searching by category, check category_path_ids
+      if (doc.category_path_ids) {
+        return doc.category_path_ids.some((id) => categoryIds.includes(id));
+      }
+      return true;
+    });
+  }
 
   return filteredResults;
 }
@@ -732,7 +854,8 @@ export async function searchProducts(
   limit: number = 50,
   userPrefs?: UserPreferences | RankingUserPrefs | null,
   sortMode: SortMode = "relevance",
-  userId?: string | null
+  userId?: string | null,
+  filters?: ProductFilters
 ): Promise<SearchResult[]> {
   if (!query || query.trim().length === 0) {
     return [];
@@ -756,7 +879,7 @@ export async function searchProducts(
 
     // Step 2: Search for matching products, brands, and categories in parallel
     // Use normalized query for better matching with Jamaican terms
-    const [productIdsByTitle, categoryIds] = await Promise.all([
+    const [productIdsByTitle, categoryIdsFromQuery] = await Promise.all([
       searchProductsByTitle(normalizedQuery),
       searchCategoriesByName(normalizedQuery),
     ]);
@@ -769,6 +892,11 @@ export async function searchProducts(
     // Keep separate arrays for ranking purposes
     const allProductIds = [...new Set([...productIdsByTitle, ...productIdsByBrand])];
 
+    // Apply filter-based category IDs if provided
+    const categoryIds = filters?.categoryIds 
+      ? [...new Set([...categoryIdsFromQuery, ...filters.categoryIds])]
+      : categoryIdsFromQuery;
+
     // If no matches found in products or categories, return empty
     if (allProductIds.length === 0 && categoryIds.length === 0) {
       return [];
@@ -780,7 +908,8 @@ export async function searchProducts(
       activeStoreLocationIds,
       allProductIds,
       [], // No separate brand collection
-      categoryIds
+      categoryIds,
+      filters // Pass filters for store location and stock filtering
     );
 
     // If no results after filtering, return empty
@@ -815,6 +944,7 @@ export async function searchProducts(
     ]);
 
     // Step 6: Build search results, calculate relevance scores, and deduplicate by SKU/product_id
+    // Apply additional filters in memory (brand, price range)
     const resultsMap = new Map<string, SearchResult>();
     const seenSkus = new Set<string>();
 
@@ -828,6 +958,21 @@ export async function searchProducts(
 
       // Skip if essential data is missing (product is required, storeLocation is optional)
       if (!product) {
+        continue;
+      }
+
+      // Apply brand filter (in memory, since brands are in products)
+      if (filters?.brands && filters.brands.length > 0) {
+        if (!brandName || !filters.brands.some(b => brandName.toLowerCase() === b.toLowerCase())) {
+          continue;
+        }
+      }
+
+      // Apply price range filter (in memory, price is in store_location_product)
+      if (filters?.minPrice !== undefined && doc.price_jmd_cents < filters.minPrice) {
+        continue;
+      }
+      if (filters?.maxPrice !== undefined && doc.price_jmd_cents > filters.maxPrice) {
         continue;
       }
       
