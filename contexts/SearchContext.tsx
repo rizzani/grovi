@@ -3,6 +3,8 @@ import { useRouter } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useUser } from "./UserContext";
 import { SearchSuggestion } from "../components/SearchBar";
+import { ProductFilters } from "../lib/search-service";
+import { SortMode } from "../lib/search/ranking";
 
 const RECENT_SEARCHES_KEY_PREFIX = "recent_searches_";
 const MAX_RECENT_SEARCHES = 10;
@@ -15,6 +17,12 @@ interface SearchContextType {
   recentSearches: string[];
   addRecentSearch: (query: string) => void;
   clearRecentSearches: () => Promise<void>;
+  // Filter and Sort State (session-only persistence)
+  filters: ProductFilters;
+  setFilters: (filters: ProductFilters) => void;
+  sortMode: SortMode;
+  setSortMode: (mode: SortMode) => void;
+  clearFiltersAndSort: () => void;
 }
 
 const SearchContext = createContext<SearchContextType | undefined>(undefined);
@@ -22,6 +30,8 @@ const SearchContext = createContext<SearchContextType | undefined>(undefined);
 export function SearchProvider({ children }: { children: ReactNode }) {
   const [searchQuery, setSearchQuery] = useState("");
   const [recentSearches, setRecentSearches] = useState<string[]>([]);
+  const [filters, setFilters] = useState<ProductFilters>({});
+  const [sortMode, setSortMode] = useState<SortMode>("relevance");
   const { userId } = useUser();
   const router = useRouter();
 
@@ -101,6 +111,11 @@ export function SearchProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const clearFiltersAndSort = () => {
+    setFilters({});
+    setSortMode("relevance");
+  };
+
   return (
     <SearchContext.Provider
       value={{
@@ -111,6 +126,11 @@ export function SearchProvider({ children }: { children: ReactNode }) {
         recentSearches,
         addRecentSearch,
         clearRecentSearches,
+        filters,
+        setFilters,
+        sortMode,
+        setSortMode,
+        clearFiltersAndSort,
       }}
     >
       {children}
