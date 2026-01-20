@@ -1,8 +1,9 @@
-import { useState, useEffect } from "react";
-import { Text, View, StyleSheet, ScrollView, ActivityIndicator, TouchableOpacity } from "react-native";
+import { useState, useEffect, useMemo, useRef } from "react";
+import { Text, View, StyleSheet, ScrollView, ActivityIndicator, TouchableOpacity, Image } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useLocalSearchParams } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
+import Constants from "expo-constants";
 import SearchBar from "../../components/SearchBar";
 import ProductFilters from "../../components/ProductFilters";
 import { useSearch } from "../../contexts/SearchContext";
@@ -15,7 +16,7 @@ export default function SearchScreen() {
   const { userId } = useUser();
   const [searchQuery, setSearchQuery] = useState(params.q || "");
   const [searchSuggestions, setSearchSuggestions] = useState<any[]>([]);
-  const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [allSearchResults, setAllSearchResults] = useState<SearchResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [filters, setFilters] = useState<ProductFiltersType>({});
   const [showFilters, setShowFilters] = useState(false);
@@ -46,7 +47,24 @@ export default function SearchScreen() {
 
   const handleSearch = async (query: string, currentFilters?: ProductFiltersType) => {
     if (!query.trim()) {
-      setSearchResults([]);
+      setAllSearchResults([]);
+      // Reset filters when search query is cleared
+      setFilters({
+        brands: [],
+        categories: [],
+        partnerStores: [],
+        inStock: null,
+        quickDelivery: null,
+        priceRange: {
+          min: null,
+          max: null,
+        },
+        dietaryRestrictions: {
+          vegan: false,
+          vegetarian: false,
+          glutenFree: false,
+        },
+      });
       return;
     }
 
@@ -57,7 +75,7 @@ export default function SearchScreen() {
       setSearchResults(results);
     } catch (error) {
       console.error("Search error:", error);
-      setSearchResults([]);
+      setAllSearchResults([]);
     } finally {
       setIsSearching(false);
     }
@@ -134,6 +152,7 @@ export default function SearchScreen() {
 
       {/* Scrollable Content */}
       <ScrollView
+        ref={scrollViewRef}
         style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
@@ -192,7 +211,7 @@ export default function SearchScreen() {
               Try searching for something else
             </Text>
           </View>
-        ) : !searchQuery && recentSearches.length > 0 ? (
+        ) : !searchQuery.trim() && allSearchResults.length === 0 && recentSearches.length > 0 ? (
           <View style={styles.recentSearchesContainer}>
             <View style={styles.sectionHeader}>
               <Text style={styles.sectionTitle}>Recent Searches</Text>
@@ -217,7 +236,7 @@ export default function SearchScreen() {
               </TouchableOpacity>
             ))}
           </View>
-        ) : !searchQuery ? (
+        ) : !searchQuery.trim() && allSearchResults.length === 0 ? (
           <View style={styles.emptyContainer}>
             <Text style={styles.emptyTitle}>Search</Text>
             <Text style={styles.emptySubtitle}>
@@ -225,7 +244,27 @@ export default function SearchScreen() {
             </Text>
           </View>
         ) : null}
+
+        {/* Display filtered results when available */}
+        {searchQuery.trim() && filteredResults.length > 0 && (
+          <View style={styles.resultsContainer}>
+            <View style={styles.productsGrid}>
+              {filteredResults.map((result, index) => (
+                <ProductCard key={`${result.sku}-${index}`} result={result} />
+              ))}
+            </View>
+          </View>
+        )}
       </ScrollView>
+
+      {/* Filters Modal */}
+      <ProductFilters
+        visible={showFilters}
+        onClose={() => setShowFilters(false)}
+        onFiltersChange={setFilters}
+        searchResults={allSearchResults}
+        initialFilters={filters}
+      />
     </SafeAreaView>
   );
 }
@@ -429,3 +468,176 @@ const styles = StyleSheet.create({
     fontWeight: "500",
   },
 });
+
+// Product Card Component
+interface ProductCardProps {
+  result: SearchResult;
+}
+
+/**
+ * Transform Appwrite image URL with optimized parameters for list display
+ * Appwrite Storage API: https://appwrite.io/docs/products/storage/images
+ * NOTE: Transformations only work with /preview endpoint, not /view
+ */
+function getTransformedImageUrl(imageUrl: string | undefined): string | undefined {
+  if (!imageUrl) return undefined;
+
+  // Check if it's an Appwrite storage URL
+  // Appwrite URLs typically look like: /v1/storage/buckets/[bucketId]/files/[fileId]/view
+  const isAppwriteStorageUrl = imageUrl.includes("/storage/buckets/") && imageUrl.includes("/files/");
+  
+  if (!isAppwriteStorageUrl) {
+    // Not an Appwrite URL, return as-is (might be external URL or placeholder)
+    if (__DEV__) {
+      console.log("Not an Appwrite URL, skipping transformation:", imageUrl);
+    }
+    return imageUrl;
+  }
+
+  // IMPORTANT: Appwrite image transformations only work with /preview endpoint
+  // Replace /view with /preview if present, or ensure /preview is used
+  let transformedUrl = imageUrl;
+  
+  // Check if URL already has /preview or /view
+  if (transformedUrl.includes("/preview")) {
+    // Already using preview endpoint, no change needed
+  } else if (transformedUrl.includes("/view")) {
+    // Replace /view with /preview (transformations require preview endpoint)
+    transformedUrl = transformedUrl.replace("/view", "/preview");
+  } else {
+    // URL might be like: /v1/storage/buckets/[id]/files/[id] or /v1/storage/buckets/[id]/files/[id]?
+    // Need to add /preview before any query params
+    const queryIndex = transformedUrl.indexOf("?");
+    const hashIndex = transformedUrl.indexOf("#");
+    const insertIndex = queryIndex !== -1 ? queryIndex : (hashIndex !== -1 ? hashIndex : transformedUrl.length);
+    
+    // Insert /preview before query params/hash, or at the end
+    transformedUrl = transformedUrl.substring(0, insertIndex) + "/preview" + transformedUrl.substring(insertIndex);
+  }
+
+  // Get project ID for Appwrite URLs (required for preview)
+  const projectId = Constants.expoConfig?.extra?.EXPO_PUBLIC_APPWRITE_PROJECT_ID || 
+    process.env.EXPO_PUBLIC_APPWRITE_PROJECT_ID || "";
+
+  // For list view cards (180px height), optimize images:
+  // - Width: 360px (2x for retina displays, prevents upscaling blur)
+  // - Height: 360px for square aspect ratio (good for product thumbnails)
+  // - Quality: 85% for good balance of quality and file size
+  // - Gravity: center to focus on center of image when cropping
+  const transformations = new URLSearchParams();
+  
+  // Add project parameter if available (required for Appwrite preview)
+  if (projectId) {
+    transformations.set("project", projectId);
+  }
+  
+  transformations.set("width", "360");
+  transformations.set("height", "360");
+  transformations.set("quality", "85");
+  transformations.set("gravity", "center");
+
+  // Handle URLs that might already have query params
+  // Appwrite URLs can be absolute (https://...) or relative (/v1/storage/...)
+  const isAbsoluteUrl = transformedUrl.startsWith("http") || transformedUrl.startsWith("//");
+  
+  if (isAbsoluteUrl) {
+    // Parse absolute URL
+    try {
+      const url = new URL(transformedUrl);
+      // Merge existing params with transformations (transformations override)
+      transformations.forEach((value, key) => {
+        url.searchParams.set(key, value);
+      });
+      return url.toString();
+    } catch {
+      // If URL parsing fails, append params manually
+      const separator = transformedUrl.includes("?") ? "&" : "?";
+      return `${transformedUrl}${separator}${transformations.toString()}`;
+    }
+  } else {
+    // Relative URL - append params
+    const separator = transformedUrl.includes("?") ? "&" : "?";
+    return `${transformedUrl}${separator}${transformations.toString()}`;
+  }
+}
+
+function ProductCard({ result }: ProductCardProps) {
+  const router = useRouter();
+  
+  const handlePress = () => {
+    // TODO: Navigate to product detail page
+    // router.push(`/product/${result.product.$id}`);
+  };
+
+  const priceFormatted = `$${(result.priceJmdCents / 100).toFixed(2)}`;
+  const originalUrl = result.product.primary_image_url;
+  const imageUri = getTransformedImageUrl(originalUrl);
+  
+  // Debug: Log URLs to see what we're working with
+  if (__DEV__ && originalUrl) {
+    console.log("Original URL:", originalUrl);
+    console.log("Transformed URL:", imageUri);
+  }
+
+  return (
+    <TouchableOpacity
+      style={[styles.productCard, !result.inStock && styles.productCardOutOfStock]}
+      onPress={handlePress}
+      activeOpacity={0.7}
+      disabled={!result.inStock}
+    >
+      {/* Product Image - Left Side */}
+      <View style={styles.productImageContainer}>
+        {imageUri ? (
+          <Image
+            source={{ uri: imageUri }}
+            style={styles.productImage}
+            resizeMode="contain"
+          />
+        ) : (
+          <View style={styles.productImagePlaceholder}>
+            <Ionicons name="cube-outline" size={40} color="#D1D5DB" />
+          </View>
+        )}
+      </View>
+
+      {/* Product Info - Right Side */}
+      <View style={styles.productInfo}>
+        {/* Header Section */}
+        <View style={styles.productHeader}>
+          <Text style={styles.productTitle} numberOfLines={2}>
+            {result.product.title}
+          </Text>
+          {result.brand && (
+            <Text style={styles.productBrand} numberOfLines={1}>
+              {result.brand}
+            </Text>
+          )}
+        </View>
+
+        {/* Details Section */}
+        <View style={styles.productDetails}>
+          {/* Store Info */}
+          <View style={styles.storeInfo}>
+            <Ionicons name="storefront" size={12} color="#9CA3AF" />
+            <Text style={styles.productStore} numberOfLines={1}>
+              {result.storeLocation.display_name || result.storeLocation.name}
+            </Text>
+          </View>
+        </View>
+
+        {/* Footer Section - Price and Category */}
+        <View style={styles.productFooter}>
+          <Text style={styles.productPrice}>{priceFormatted}</Text>
+          {result.category && (
+            <View style={styles.categoryBadge}>
+              <Text style={styles.categoryBadgeText} numberOfLines={1}>
+                {result.category.name}
+              </Text>
+            </View>
+          )}
+        </View>
+      </View>
+    </TouchableOpacity>
+  );
+}

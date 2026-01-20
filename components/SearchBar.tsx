@@ -25,6 +25,7 @@ interface SearchBarProps {
   onChangeText?: (query: string) => void;
   recentSearches?: string[];
   onRecentSearchPress?: (query: string) => void;
+  value?: string; // Add value prop for controlled component
 }
 
 export default function SearchBar({
@@ -37,11 +38,19 @@ export default function SearchBar({
   onChangeText,
   recentSearches = [],
   onRecentSearchPress,
+  value, // Accept value prop
 }: SearchBarProps) {
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useState(value || "");
   const [isFocused, setIsFocused] = useState(false);
   const [showAutocomplete, setShowAutocomplete] = useState(false);
   const inputRef = useRef<TextInput>(null);
+
+  // Sync internal state with value prop when it changes
+  useEffect(() => {
+    if (value !== undefined) {
+      setQuery(value);
+    }
+  }, [value]);
 
   // Show autocomplete when focused and there are suggestions, or show recent searches when focused and input is empty
   useEffect(() => {
