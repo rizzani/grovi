@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from "react";
-import { Text, View, StyleSheet, ScrollView, ActivityIndicator, TouchableOpacity, Image } from "react-native";
+import { Text, View, StyleSheet, ScrollView, FlatList, ActivityIndicator, TouchableOpacity, Image } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -9,7 +9,7 @@ import ProductFilters from "../../components/ProductFilters";
 import SortPicker from "../../components/SortPicker";
 import { useSearch } from "../../contexts/SearchContext";
 import { useUser } from "../../contexts/UserContext";
-import { getSearchSuggestions, searchProducts, ProductFilters as ProductFiltersType, SearchResult } from "../../lib/search-service";
+import { getSearchSuggestions, searchProductsPaginated, ProductFilters as ProductFiltersType, SearchResult } from "../../lib/search-service";
 import { SortMode } from "../../lib/search/ranking";
 
 export default function SearchScreen() {
@@ -31,6 +31,13 @@ export default function SearchScreen() {
   const [isSearching, setIsSearching] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
   const scrollViewRef = useRef<ScrollView>(null);
+  
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalResults, setTotalResults] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const pageSize = 50; // Results per page
 
   // Update query when params change
   useEffect(() => {
@@ -59,6 +66,9 @@ export default function SearchScreen() {
   const handleSearch = async (query: string, currentFilters?: ProductFiltersType, currentSortMode?: SortMode) => {
     if (!query.trim()) {
       setAllSearchResults([]);
+      setCurrentPage(1);
+      setTotalResults(0);
+      setHasMore(false);
       // Note: Filters and sort mode are NOT reset when search query is cleared
       // They persist during the session and are only reset when explicitly cleared
       return;
@@ -68,11 +78,27 @@ export default function SearchScreen() {
     try {
       const filtersToUse = currentFilters !== undefined ? currentFilters : filters;
       const sortModeToUse = currentSortMode !== undefined ? currentSortMode : sortMode;
-      const results = await searchProducts(query, 50, undefined, sortModeToUse, userId || null, filtersToUse);
-      setAllSearchResults(results);
+      
+      // Use paginated search with page 1
+      const paginatedResults = await searchProductsPaginated(
+        query,
+        { page: 1, pageSize },
+        undefined,
+        sortModeToUse,
+        userId || null,
+        filtersToUse
+      );
+      
+      setAllSearchResults(paginatedResults.results);
+      setCurrentPage(1);
+      setTotalResults(paginatedResults.totalResults);
+      setHasMore(paginatedResults.hasMore);
     } catch (error) {
       console.error("Search error:", error);
       setAllSearchResults([]);
+      setCurrentPage(1);
+      setTotalResults(0);
+      setHasMore(false);
     } finally {
       setIsSearching(false);
     }
@@ -107,6 +133,36 @@ export default function SearchScreen() {
 
   const handleSuggestionSelect = (suggestion: any) => {
     performSearch(suggestion.text);
+  };
+
+  const loadMoreResults = async () => {
+    // Prevent loading if already loading, no more results, or no search query
+    if (isLoadingMore || !hasMore || !searchQuery.trim()) {
+      return;
+    }
+
+    setIsLoadingMore(true);
+    try {
+      const nextPage = currentPage + 1;
+      
+      const paginatedResults = await searchProductsPaginated(
+        searchQuery,
+        { page: nextPage, pageSize },
+        undefined,
+        sortMode,
+        userId || null,
+        filters
+      );
+      
+      // Append new results to existing results
+      setAllSearchResults([...allSearchResults, ...paginatedResults.results]);
+      setCurrentPage(nextPage);
+      setHasMore(paginatedResults.hasMore);
+    } catch (error) {
+      console.error("Error loading more results:", error);
+    } finally {
+      setIsLoadingMore(false);
+    }
   };
 
   return (
@@ -155,128 +211,152 @@ export default function SearchScreen() {
         onClose={() => setShowFilters(false)}
       />
 
-      {/* Scrollable Content */}
-      <ScrollView
-        ref={scrollViewRef}
-        style={styles.scrollView}
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled"
-      >
-        {/* Sort and Filter Bar - Show when there are results */}
-        {searchQuery && allSearchResults.length > 0 && !isSearching && (
-          <View style={styles.sortFilterBar}>
-            <SortPicker currentSort={sortMode} onSortChange={handleSortChange} />
-            {hasActiveFilters() && (
-              <TouchableOpacity
-                style={styles.activeFiltersIndicator}
-                onPress={() => setShowFilters(true)}
-                activeOpacity={0.7}
-              >
-                <Ionicons name="funnel" size={14} color="#10B981" />
-                <Text style={styles.activeFiltersText}>
-                  {(filters.brands?.length || 0) +
-                    (filters.categoryIds?.length || 0) +
-                    (filters.deliveryParish ? 1 : 0) +
-                    (filters.inStock === false ? 1 : 0) +
-                    (filters.minPrice || filters.maxPrice ? 1 : 0)}{" "}
-                  active
+      {/* Content - FlatList for results, ScrollView for empty states */}
+      {searchQuery && allSearchResults.length > 0 && !isSearching ? (
+        <FlatList
+          data={allSearchResults}
+          renderItem={({ item }) => <ProductCard result={item} />}
+          keyExtractor={(item, index) => `${item.sku}-${index}`}
+          contentContainerStyle={styles.flatListContent}
+          showsVerticalScrollIndicator={false}
+          onEndReached={loadMoreResults}
+          onEndReachedThreshold={0.5}
+          ListHeaderComponent={
+            <View>
+              {/* Sort and Filter Bar */}
+              <View style={styles.sortFilterBar}>
+                <SortPicker currentSort={sortMode} onSortChange={handleSortChange} />
+                {hasActiveFilters() && (
+                  <TouchableOpacity
+                    style={styles.activeFiltersIndicator}
+                    onPress={() => setShowFilters(true)}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons name="funnel" size={14} color="#10B981" />
+                    <Text style={styles.activeFiltersText}>
+                      {(filters.brands?.length || 0) +
+                        (filters.categoryIds?.length || 0) +
+                        (filters.deliveryParish ? 1 : 0) +
+                        (filters.inStock === false ? 1 : 0) +
+                        (filters.minPrice || filters.maxPrice ? 1 : 0)}{" "}
+                      active
+                    </Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+              {/* Results Header */}
+              <Text style={styles.resultsHeader}>
+                {totalResults > 0 ? `${totalResults} result${totalResults !== 1 ? "s" : ""} found` : `${allSearchResults.length} result${allSearchResults.length !== 1 ? "s" : ""} found`}
+              </Text>
+            </View>
+          }
+          ListFooterComponent={
+            isLoadingMore ? (
+              <View style={styles.loadingMoreContainer}>
+                <ActivityIndicator size="small" color="#10B981" />
+                <Text style={styles.loadingMoreText}>Loading more results...</Text>
+              </View>
+            ) : !hasMore && allSearchResults.length > 0 ? (
+              <View style={styles.endOfResultsContainer}>
+                <View style={styles.endOfResultsDivider} />
+                <Text style={styles.endOfResultsText}>
+                  {totalResults > 0 
+                    ? `All ${totalResults} results loaded`
+                    : "No more results"}
                 </Text>
-              </TouchableOpacity>
-            )}
-          </View>
-        )}
-
-        {/* Search Results or Empty State */}
-        {isSearching ? (
-          <View style={styles.loadingContainer}>
-            <ActivityIndicator size="large" color="#10B981" />
-            <Text style={styles.loadingText}>Searching...</Text>
-          </View>
-        ) : searchQuery && allSearchResults.length > 0 ? (
-          <View style={styles.resultsContainer}>
-            <Text style={styles.resultsHeader}>
-              {allSearchResults.length} result{allSearchResults.length !== 1 ? "s" : ""} found
-            </Text>
-            <View style={styles.productsGrid}>
-              {allSearchResults.map((result, index) => (
-                <ProductCard key={`${result.sku}-${index}`} result={result} />
-              ))}
+                <View style={styles.endOfResultsDivider} />
+              </View>
+            ) : null
+          }
+        />
+      ) : (
+        <ScrollView
+          ref={scrollViewRef}
+          style={styles.scrollView}
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+        >
+          {/* Loading State */}
+          {isSearching ? (
+            <View style={styles.loadingContainer}>
+              <ActivityIndicator size="large" color="#10B981" />
+              <Text style={styles.loadingText}>Searching...</Text>
             </View>
-          </View>
-        ) : searchQuery && allSearchResults.length === 0 ? (
-          <View style={styles.emptyContainer}>
-            <View style={styles.emptyIconContainer}>
-              <Ionicons 
-                name={hasActiveFilters() ? "funnel-outline" : "search-outline"} 
-                size={64} 
-                color="#D1D5DB" 
-              />
+          ) : searchQuery && allSearchResults.length === 0 ? (
+            <View style={styles.emptyContainer}>
+              <View style={styles.emptyIconContainer}>
+                <Ionicons 
+                  name={hasActiveFilters() ? "funnel-outline" : "search-outline"} 
+                  size={64} 
+                  color="#D1D5DB" 
+                />
+              </View>
+              <Text style={styles.emptyTitle}>No results found</Text>
+              <Text style={styles.emptySubtitle}>
+                {hasActiveFilters() 
+                  ? "No products match your current filters. Try adjusting your filters or search query."
+                  : "We couldn't find any products matching your search."}
+              </Text>
+              {hasActiveFilters() && (
+                <View style={styles.emptyActions}>
+                  <TouchableOpacity
+                    style={styles.clearFiltersButton}
+                    onPress={() => {
+                      setFilters({});
+                      handleSearch(searchQuery, {}, sortMode);
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons name="close-circle" size={18} color="#FFFFFF" />
+                    <Text style={styles.clearFiltersButtonText}>Clear All Filters</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.adjustFiltersButton}
+                    onPress={() => setShowFilters(true)}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons name="options" size={18} color="#10B981" />
+                    <Text style={styles.adjustFiltersButtonText}>Adjust Filters</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
             </View>
-            <Text style={styles.emptyTitle}>No results found</Text>
-            <Text style={styles.emptySubtitle}>
-              {hasActiveFilters() 
-                ? "No products match your current filters. Try adjusting your filters or search query."
-                : "We couldn't find any products matching your search."}
-            </Text>
-            {hasActiveFilters() && (
-              <View style={styles.emptyActions}>
+          ) : !searchQuery.trim() && allSearchResults.length === 0 && recentSearches.length > 0 ? (
+            <View style={styles.recentSearchesContainer}>
+              <View style={styles.sectionHeader}>
+                <Text style={styles.sectionTitle}>Recent Searches</Text>
                 <TouchableOpacity
-                  style={styles.clearFiltersButton}
-                  onPress={() => {
-                    setFilters({});
-                    handleSearch(searchQuery, {}, sortMode);
-                  }}
+                  onPress={clearRecentSearches}
                   activeOpacity={0.7}
+                  style={styles.clearButton}
                 >
-                  <Ionicons name="close-circle" size={18} color="#FFFFFF" />
-                  <Text style={styles.clearFiltersButtonText}>Clear All Filters</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={styles.adjustFiltersButton}
-                  onPress={() => setShowFilters(true)}
-                  activeOpacity={0.7}
-                >
-                  <Ionicons name="options" size={18} color="#10B981" />
-                  <Text style={styles.adjustFiltersButtonText}>Adjust Filters</Text>
+                  <Text style={styles.clearButtonText}>Clear</Text>
                 </TouchableOpacity>
               </View>
-            )}
-          </View>
-        ) : !searchQuery.trim() && allSearchResults.length === 0 && recentSearches.length > 0 ? (
-          <View style={styles.recentSearchesContainer}>
-            <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>Recent Searches</Text>
-              <TouchableOpacity
-                onPress={clearRecentSearches}
-                activeOpacity={0.7}
-                style={styles.clearButton}
-              >
-                <Text style={styles.clearButtonText}>Clear</Text>
-              </TouchableOpacity>
+              {recentSearches.map((query, index) => (
+                <TouchableOpacity
+                  key={index}
+                  style={styles.recentSearchItem}
+                  onPress={() => performSearch(query)}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons name="time-outline" size={18} color="#6B7280" style={styles.recentSearchIcon} />
+                  <Text style={styles.recentSearchText}>{query}</Text>
+                  <Ionicons name="arrow-forward" size={18} color="#9CA3AF" style={styles.recentSearchArrow} />
+                </TouchableOpacity>
+              ))}
             </View>
-            {recentSearches.map((query, index) => (
-              <TouchableOpacity
-                key={index}
-                style={styles.recentSearchItem}
-                onPress={() => performSearch(query)}
-                activeOpacity={0.7}
-              >
-                <Ionicons name="time-outline" size={18} color="#6B7280" style={styles.recentSearchIcon} />
-                <Text style={styles.recentSearchText}>{query}</Text>
-                <Ionicons name="arrow-forward" size={18} color="#9CA3AF" style={styles.recentSearchArrow} />
-              </TouchableOpacity>
-            ))}
-          </View>
-        ) : !searchQuery.trim() && allSearchResults.length === 0 ? (
-          <View style={styles.emptyContainer}>
-            <Text style={styles.emptyTitle}>Search</Text>
-            <Text style={styles.emptySubtitle}>
-              Find products and stores
-            </Text>
-          </View>
-        ) : null}
-      </ScrollView>
+          ) : !searchQuery.trim() && allSearchResults.length === 0 ? (
+            <View style={styles.emptyContainer}>
+              <Text style={styles.emptyTitle}>Search</Text>
+              <Text style={styles.emptySubtitle}>
+                Find products and stores
+              </Text>
+            </View>
+          ) : null}
+        </ScrollView>
+      )}
     </SafeAreaView>
   );
 }
@@ -290,6 +370,11 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 24,
+  },
+  flatListContent: {
     paddingHorizontal: 16,
     paddingTop: 12,
     paddingBottom: 24,
@@ -636,6 +721,36 @@ const styles = StyleSheet.create({
   categoryBadgeText: {
     fontSize: 11,
     color: "#6B7280",
+    fontWeight: "500",
+  },
+  loadingMoreContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 20,
+    gap: 12,
+  },
+  loadingMoreText: {
+    fontSize: 14,
+    color: "#6B7280",
+    fontWeight: "500",
+  },
+  endOfResultsContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 24,
+    gap: 12,
+  },
+  endOfResultsDivider: {
+    flex: 1,
+    height: 1,
+    backgroundColor: "#E5E7EB",
+    maxWidth: 60,
+  },
+  endOfResultsText: {
+    fontSize: 13,
+    color: "#9CA3AF",
     fontWeight: "500",
   },
 });

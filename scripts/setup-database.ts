@@ -1175,6 +1175,26 @@ async function setupDatabase() {
       }
     }
 
+    try {
+      await appwriteRequest(
+        "POST",
+        `/databases/${databaseId}/collections/${storeLocationProductCollectionId}/indexes`,
+        {
+          key: "idx_price",
+          type: "key",
+          attributes: ["price_jmd_cents"],
+          orders: ["ASC"],
+        }
+      );
+      console.log(`  ✓ Created index 'idx_price' on store_location_product`);
+    } catch (error: any) {
+      if (error.code === 409) {
+        console.log(`  - Index 'idx_price' already exists`);
+      } else {
+        console.error(`  ✗ Failed to create index: ${error.message}`);
+      }
+    }
+
     // Step 29: Set store_location_product permissions
     try {
       await appwriteRequest(

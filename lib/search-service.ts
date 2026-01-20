@@ -132,6 +132,36 @@ export interface ProductFilters {
   storeLocationIds?: string[];
 }
 
+/**
+ * Pagination options for search results
+ */
+export interface PaginationOptions {
+  /** Page number (1-based) */
+  page?: number;
+  /** Number of items per page */
+  pageSize?: number;
+  /** Offset for cursor-based pagination (alternative to page) */
+  offset?: number;
+}
+
+/**
+ * Paginated search result wrapper
+ */
+export interface PaginatedSearchResults {
+  /** Current page of results */
+  results: SearchResult[];
+  /** Total number of results before pagination */
+  totalResults: number;
+  /** Current page number (1-based) */
+  currentPage: number;
+  /** Total number of pages */
+  totalPages: number;
+  /** Number of items per page */
+  pageSize: number;
+  /** Whether there are more results */
+  hasMore: boolean;
+}
+
 // Ranking logic has been moved to lib/search/ranking.ts
 // Import rankResults, RankingUserPrefs, and SortMode from there
 
@@ -691,8 +721,53 @@ async function getStoreLocationIdsByParish(parish: string): Promise<string[]> {
 }
 
 /**
+ * Helper function to fetch all results with automatic pagination
+ * Fetches in batches until all results are retrieved
+ */
+async function fetchAllWithPagination(
+  queries: any[],
+  batchSize: number = 250
+): Promise<any[]> {
+  const allDocs: any[] = [];
+  let offset = 0;
+  let hasMore = true;
+
+  while (hasMore) {
+    try {
+      const response = await databases.listDocuments(
+        databaseId,
+        STORE_LOCATION_PRODUCT_COLLECTION_ID,
+        [
+          ...queries,
+          Query.limit(batchSize),
+          Query.offset(offset)
+        ]
+      );
+
+      allDocs.push(...response.documents);
+      
+      // If we got fewer results than the batch size, we've reached the end
+      hasMore = response.documents.length === batchSize;
+      offset += batchSize;
+
+      // Safety check to prevent infinite loops (max 10,000 results)
+      if (offset >= 10000) {
+        console.warn("⚠️ Reached maximum result limit (10,000). Some results may be truncated.");
+        break;
+      }
+    } catch (error: any) {
+      console.error("Error fetching batch at offset", offset, ":", error);
+      break;
+    }
+  }
+
+  return allDocs;
+}
+
+/**
  * Query store_location_product with multiple filters
  * Appwrite doesn't support OR queries directly, so we query separately and combine
+ * Now with automatic pagination to fetch ALL results (no artificial limits)
  */
 async function queryStoreLocationProducts(
   activeStoreLocationIds: string[],
@@ -744,14 +819,18 @@ async function queryStoreLocationProducts(
           queries.push(Query.equal("store_location_id", storeLocationIdsToUse));
         }
         
-        queries.push(Query.limit(100));
+        // Apply price range filters at database level for better performance
+        if (filters?.minPrice !== undefined) {
+          queries.push(Query.greaterThanEqual("price_jmd_cents", filters.minPrice));
+        }
+        if (filters?.maxPrice !== undefined) {
+          queries.push(Query.lessThanEqual("price_jmd_cents", filters.maxPrice));
+        }
         
-        const response = await databases.listDocuments(
-          databaseId,
-          STORE_LOCATION_PRODUCT_COLLECTION_ID,
-          queries
-        );
-        response.documents.forEach((doc: any) => {
+        // Fetch all results with automatic pagination (batch size: 250)
+        const documents = await fetchAllWithPagination(queries, 250);
+        
+        documents.forEach((doc: any) => {
           allResults.set(doc.$id, doc as StoreLocationProduct);
         });
       } catch (error: any) {
@@ -784,14 +863,18 @@ async function queryStoreLocationProducts(
           queries.push(Query.equal("store_location_id", storeLocationIdsToUse));
         }
         
-        queries.push(Query.limit(100));
+        // Apply price range filters at database level for better performance
+        if (filters?.minPrice !== undefined) {
+          queries.push(Query.greaterThanEqual("price_jmd_cents", filters.minPrice));
+        }
+        if (filters?.maxPrice !== undefined) {
+          queries.push(Query.lessThanEqual("price_jmd_cents", filters.maxPrice));
+        }
         
-        const response = await databases.listDocuments(
-          databaseId,
-          STORE_LOCATION_PRODUCT_COLLECTION_ID,
-          queries
-        );
-        response.documents.forEach((doc: any) => {
+        // Fetch all results with automatic pagination (batch size: 250)
+        const documents = await fetchAllWithPagination(queries, 250);
+        
+        documents.forEach((doc: any) => {
           allResults.set(doc.$id, doc as StoreLocationProduct);
         });
       } catch (error: any) {
@@ -818,6 +901,60 @@ async function queryStoreLocationProducts(
 
 // Ranking functions have been moved to lib/search/ranking.ts
 // Use rankResults() from that module instead
+
+/**
+ * Perform a global product search across all active stores (paginated version)
+ * 
+ * This version supports pagination for large result sets.
+ * 
+ * @param query - Search query string
+ * @param pagination - Pagination options (page, pageSize, or offset)
+ * @param userPrefs - User preferences for ranking boost
+ * @param sortMode - Sort mode: "relevance", "price_asc", or "price_desc"
+ * @param userId - Optional user ID for analytics tracking
+ * @param filters - Filter options (brands, categories, price range, etc.)
+ * @returns Paginated search results with metadata
+ */
+export async function searchProductsPaginated(
+  query: string,
+  pagination: PaginationOptions = {},
+  userPrefs?: UserPreferences | RankingUserPrefs | null,
+  sortMode: SortMode = "relevance",
+  userId?: string | null,
+  filters?: ProductFilters
+): Promise<PaginatedSearchResults> {
+  // Get all results (we'll paginate in-memory for now)
+  // In a production system, you'd want to paginate at the database level
+  const allResults = await searchProducts(
+    query,
+    10000, // Get more results for pagination
+    userPrefs,
+    sortMode,
+    userId,
+    filters
+  );
+  
+  // Calculate pagination
+  const pageSize = pagination.pageSize || 50;
+  const page = pagination.page || 1;
+  const offset = pagination.offset !== undefined ? pagination.offset : (page - 1) * pageSize;
+  
+  const totalResults = allResults.length;
+  const totalPages = Math.ceil(totalResults / pageSize);
+  const startIndex = offset;
+  const endIndex = Math.min(startIndex + pageSize, totalResults);
+  
+  const results = allResults.slice(startIndex, endIndex);
+  
+  return {
+    results,
+    totalResults,
+    currentPage: page,
+    totalPages,
+    pageSize,
+    hasMore: endIndex < totalResults,
+  };
+}
 
 /**
  * Perform a global product search across all active stores
@@ -852,6 +989,7 @@ async function queryStoreLocationProducts(
  * @param userPrefs - User preferences for ranking boost (optional, non-breaking). Can be UserPreferences or RankingUserPrefs
  * @param sortMode - Sort mode: "relevance" (default), "price_asc", or "price_desc"
  * @param userId - Optional user ID for analytics tracking (null for anonymous searches)
+ * @param filters - Filter options (brands, categories, price range, etc.)
  * @returns Array of search results sorted by relevance, with product, brand, category, and store information
  */
 export async function searchProducts(
@@ -973,13 +1111,8 @@ export async function searchProducts(
         }
       }
 
-      // Apply price range filter (in memory, price is in store_location_product)
-      if (filters?.minPrice !== undefined && doc.price_jmd_cents < filters.minPrice) {
-        continue;
-      }
-      if (filters?.maxPrice !== undefined && doc.price_jmd_cents > filters.maxPrice) {
-        continue;
-      }
+      // Price range filters are now applied at database level (see queryStoreLocationProducts)
+      // This comment kept for reference - filters moved to DB queries for performance
       
       // If we can't fetch store location details, create a minimal one from the ID
       const finalStoreLocation: StoreLocation = storeLocation || {
