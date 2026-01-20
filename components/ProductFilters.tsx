@@ -1,646 +1,150 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import {
   View,
   Text,
   StyleSheet,
   TouchableOpacity,
-  ScrollView,
   Modal,
-  Switch,
-  Dimensions,
-  PanResponder,
+  ScrollView,
+  TextInput,
+  ActivityIndicator,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import { SearchResult } from "../lib/search-service";
+import { ProductFilters as ProductFiltersType } from "../lib/search-service";
+import { getAllCategories, getAllBrands, Category } from "../lib/search-service";
+import { getAddresses } from "../lib/profile-service";
+import { Address } from "../lib/profile-service";
 
-const { width: SCREEN_WIDTH } = Dimensions.get("window");
-
-// Helper function to format price in JMD from cents (no decimals)
-function formatPriceJmd(cents: number | null | undefined): string {
-  if (cents === null || cents === undefined || cents === 0) return "";
-  return Math.round(cents / 100).toString();
-}
-
-// Price Range Slider Component (using PanResponder instead of reanimated)
-function PriceRangeSlider({
-  minPrice,
-  maxPrice,
-  currentMin,
-  currentMax,
-  onValueChange,
-}: {
-  minPrice: number;
-  maxPrice: number;
-  currentMin: number | null;
-  currentMax: number | null;
-  onValueChange: (min: number | null, max: number | null) => void;
-}) {
-  const sliderWidth = SCREEN_WIDTH - 64; // 32px padding on each side (16px from container padding * 2 + 32px = 64px total)
-  const trackMargin = 12; // Matches marginHorizontal in sliderTrackBackground style
-  const thumbWidth = 24; // Width of thumb
-  const thumbHalfWidth = thumbWidth / 2; // Half width for centering
-  
-  // Convert cents to dollars for slider
-  const minDollars = minPrice / 100;
-  const maxDollars = maxPrice / 100;
-  const currentMinDollars = currentMin ? currentMin / 100 : minDollars;
-  const currentMaxDollars = currentMax ? currentMax / 100 : maxDollars;
-  
-  const range = maxDollars - minDollars;
-  
-  // Calculate initial positions (0-1 as ratio of range)
-  // If currentMin/Max is null, use boundary values (0 for min, 1 for max)
-  const getInitialMinRatio = () => {
-    if (currentMin === null) return 0;
-    return range > 0 ? (currentMinDollars - minDollars) / range : 0;
-  };
-  
-  const getInitialMaxRatio = () => {
-    // When currentMax is null, return 1.0 to start at far right
-    if (currentMax === null) return 1.0;
-    // Otherwise calculate from currentMax value
-    return range > 0 ? (currentMaxDollars - minDollars) / range : 1.0;
-  };
-  
-  const [minRatio, setMinRatio] = useState(getInitialMinRatio());
-  const [maxRatio, setMaxRatio] = useState(() => {
-    // Force initial max to 1.0 if currentMax is null
-    const initial = getInitialMaxRatio();
-    return initial;
-  });
-  const [isDraggingMin, setIsDraggingMin] = useState(false);
-  const [isDraggingMax, setIsDraggingMax] = useState(false);
-  const [containerWidth, setContainerWidth] = useState(sliderWidth); // State to trigger re-render when width changes
-  const trackContainerRef = useRef<View>(null);
-  const dragStartData = useRef({ minRatio: 0, maxRatio: 0, startPageX: 0, trackLeft: 0 });
-  const justReleasedRef = useRef(false);
-  const trackContainerWidthRef = useRef(sliderWidth); // Track actual container width
-  
-  // Clamp value between 0 and 1
-  const clamp = (value: number) => Math.max(0, Math.min(1, value));
-  
-  // Sync positions when values change externally (only when not dragging and not just released)
-  // Add a ref to track if dragging to prevent sync during touch sequence
-  const isDraggingRef = useRef(false);
-  
-  // Sync positions when values change externally (only when not dragging and not just released)
-  useEffect(() => {
-    if (isDraggingMin || isDraggingMax || justReleasedRef.current || isDraggingRef.current) {
-      // Don't sync while dragging or immediately after release
-      return;
-    }
-    
-    // Calculate what the ratios should be based on current props
-    // If null, use boundary values (0 for min, 1 for max)
-    const newMinRatio = currentMin === null ? 0 : (range > 0 ? (currentMinDollars - minDollars) / range : 0);
-    const newMaxRatio = currentMax === null ? 1.0 : (range > 0 ? (currentMaxDollars - minDollars) / range : 1.0);
-    
-    // Clamp to ensure valid range
-    const clampedMinRatio = clamp(newMinRatio);
-    const clampedMaxRatio = clamp(newMaxRatio);
-    
-    // When currentMax is null, always set to exactly 1.0 (not 0.999 or similar)
-    // When currentMin is null, always set to exactly 0
-    if (currentMax === null) {
-      if (maxRatio !== 1.0) {
-        setMaxRatio(1.0);
-      }
-    } else if (Math.abs(maxRatio - clampedMaxRatio) > 0.001) {
-      setMaxRatio(clampedMaxRatio);
-    }
-    
-    if (currentMin === null) {
-      if (minRatio !== 0) {
-        setMinRatio(0);
-      }
-    } else if (Math.abs(minRatio - clampedMinRatio) > 0.001) {
-      setMinRatio(clampedMinRatio);
-    }
-  }, [currentMin, currentMax, isDraggingMin, isDraggingMax]);
-  
-  // Convert position (0-1) to dollars
-  const positionToDollars = (pos: number) => minDollars + pos * range;
-  
-  // Convert dollars to cents
-  const dollarsToCents = (dollars: number) => Math.round(dollars * 100);
-  
-  // Update slider values
-  const updateValues = (newMinRatio: number, newMaxRatio: number) => {
-    const newMinDollars = positionToDollars(newMinRatio);
-    const newMaxDollars = positionToDollars(newMaxRatio);
-    
-    // If values are at boundaries, treat as null
-    // Use tighter tolerance for min, allow max to go very close to end but only set null if exactly at boundaries
-    // When maxRatio is very close to 1.0 (within 0.001), keep it as maxDollars instead of null
-    const newMin = newMinRatio <= 0.001 ? null : dollarsToCents(newMinDollars);
-    // Only set max to null if ratio is exactly 1.0 (meaning no filter), otherwise use the actual value
-    // But if user dragged to very end (>= 0.999), use maxDollars
-    const newMax = newMaxRatio >= 0.999 ? dollarsToCents(maxDollars) : dollarsToCents(newMaxDollars);
-    
-    onValueChange(newMin, newMax);
-  };
-  
-  // Use refs to track current ratios so we always get the latest values
-  const minRatioRef = useRef(minRatio);
-  const maxRatioRef = useRef(maxRatio);
-  
-  // Update refs whenever ratios change
-  useEffect(() => {
-    minRatioRef.current = minRatio;
-    maxRatioRef.current = maxRatio;
-  }, [minRatio, maxRatio]);
-  
-  // Min thumb pan responder
-  const minPanResponder = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: () => true,
-      onPanResponderGrant: (evt) => {
-        // Prevent sync during touch - set flag immediately (synchronous)
-        isDraggingRef.current = true;
-        
-        // Capture CURRENT ratios from refs (always up-to-date, not stale closure values)
-        // This ensures we capture where the thumb currently is, not where it was when component rendered
-        const currentMinRatio = minRatioRef.current;
-        const currentMaxRatio = maxRatioRef.current;
-        
-        dragStartData.current.minRatio = currentMinRatio;
-        dragStartData.current.maxRatio = currentMaxRatio;
-        dragStartData.current.startPageX = evt.nativeEvent.pageX;
-        
-        // Then set dragging state (this is async, but we already captured values from refs)
-        setIsDraggingMin(true);
-        
-        // Get track position on start
-        if (trackContainerRef.current) {
-          trackContainerRef.current.measure((x, y, width, height, pageXTrack) => {
-            dragStartData.current.trackLeft = pageXTrack;
-          });
-        }
-      },
-      onPanResponderMove: (evt) => {
-        const deltaX = evt.nativeEvent.pageX - dragStartData.current.startPageX;
-        // Use current measured width for accurate delta calculation
-        const currentAvailableWidth = trackContainerWidthRef.current - (trackMargin * 2);
-        const deltaRatio = deltaX / currentAvailableWidth;
-        let newMinRatio = dragStartData.current.minRatio + deltaRatio;
-        
-        // Get current maxRatio from ref to ensure we have the latest value
-        const currentMaxRatio = maxRatioRef.current;
-        
-        // Ensure min cannot exceed max - clamp to current max ratio
-        if (newMinRatio > currentMaxRatio) {
-          newMinRatio = currentMaxRatio;
-        }
-        
-        // Clamp to valid range [0, maxRatio]
-        newMinRatio = clamp(newMinRatio);
-        
-        // Update if valid
-        if (newMinRatio <= currentMaxRatio) {
-          setMinRatio(newMinRatio);
-          updateValues(newMinRatio, currentMaxRatio);
-        }
-      },
-      onPanResponderRelease: () => {
-        setIsDraggingMin(false);
-        // Prevent sync for a short moment after release
-        justReleasedRef.current = true;
-        setTimeout(() => {
-          justReleasedRef.current = false;
-          isDraggingRef.current = false;
-        }, 100);
-      },
-    })
-  ).current;
-  
-  // Max thumb pan responder
-  const maxPanResponder = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: () => true,
-      onPanResponderGrant: (evt) => {
-        // Prevent sync during touch - set flag immediately (synchronous)
-        isDraggingRef.current = true;
-        
-        // Capture CURRENT ratios from refs (always up-to-date, not stale closure values)
-        // This ensures we capture where the thumb currently is, not where it was when component rendered
-        const currentMinRatio = minRatioRef.current;
-        const currentMaxRatio = maxRatioRef.current;
-        
-        dragStartData.current.minRatio = currentMinRatio;
-        dragStartData.current.maxRatio = currentMaxRatio;
-        dragStartData.current.startPageX = evt.nativeEvent.pageX;
-        
-        // Then set dragging state (this is async, but we already captured values from refs)
-        setIsDraggingMax(true);
-        
-        // Get track position on start
-        if (trackContainerRef.current) {
-          trackContainerRef.current.measure((x, y, width, height, pageXTrack) => {
-            dragStartData.current.trackLeft = pageXTrack;
-          });
-        }
-      },
-      onPanResponderMove: (evt) => {
-        const deltaX = evt.nativeEvent.pageX - dragStartData.current.startPageX;
-        // Use current measured width for accurate delta calculation
-        const currentAvailableWidth = trackContainerWidthRef.current - (trackMargin * 2);
-        const deltaRatio = deltaX / currentAvailableWidth;
-        let newMaxRatio = dragStartData.current.maxRatio + deltaRatio;
-        
-        // Get current minRatio from ref to ensure we have the latest value (updated in real-time)
-        const currentMinRatio = minRatioRef.current;
-        
-        // CRITICAL: Ensure max cannot go below min - enforce strictly
-        // Use Math.max to ensure newMaxRatio is always >= currentMinRatio
-        newMaxRatio = Math.max(newMaxRatio, currentMinRatio);
-        
-        // Allow max to reach exactly 1.0 (extreme corner)
-        // When very close to 1.0 (within 0.1%), snap to exactly 1.0 to eliminate gaps
-        if (newMaxRatio > 1.0 - 0.0001) {
-          newMaxRatio = 1.0;
-        } else {
-          newMaxRatio = Math.min(newMaxRatio, 1.0);
-        }
-        
-        // Final validation: ensure it's within [currentMinRatio, 1.0]
-        newMaxRatio = Math.max(currentMinRatio, Math.min(1.0, newMaxRatio));
-        
-        // Always update since we've ensured validity
-        setMaxRatio(newMaxRatio);
-        updateValues(currentMinRatio, newMaxRatio);
-      },
-      onPanResponderRelease: () => {
-        setIsDraggingMax(false);
-        // Prevent sync for a short moment after release
-        justReleasedRef.current = true;
-        setTimeout(() => {
-          justReleasedRef.current = false;
-          isDraggingRef.current = false;
-        }, 100);
-      },
-    })
-  ).current;
-  
-  // Track container width will be measured via onLayout handler
-  // No need for useEffect - onLayout fires when component mounts and layout changes
-  
-  // Position thumbs: Track background has marginHorizontal: 12 (trackMargin)
-  // Use state-based container width for positioning (updates when measured)
-  const actualAvailableWidth = containerWidth - (trackMargin * 2); // Use measured width for positioning
-  const trackRightEdge = containerWidth - trackMargin; // Track's right edge position
-  
-  // Min thumb: normal centering within the track
-  const minThumbLeft = trackMargin + minRatio * actualAvailableWidth - thumbHalfWidth;
-  
-  // Max thumb: continuous calculation for all values 0 to 1
-  // Normal formula: trackMargin + maxRatio * actualAvailableWidth - thumbHalfWidth (works well for most values)
-  // At maxRatio = 1.0, we need right edge at trackRightEdge, so adjust by thumbHalfWidth
-  // Adjustment needed at 1.0: (trackRightEdge - thumbWidth) - (trackMargin + actualAvailableWidth - thumbHalfWidth)
-  // = (containerWidth - trackMargin - thumbWidth) - (containerWidth - trackMargin - thumbHalfWidth)
-  // = thumbHalfWidth - thumbWidth = -thumbHalfWidth
-  // So we add: maxRatio * (-thumbHalfWidth) = maxRatio * (thumbHalfWidth - thumbWidth) = -maxRatio * thumbHalfWidth
-  // Actually simpler: at 1.0, subtract thumbHalfWidth, so: subtract maxRatio * thumbHalfWidth
-  // But we want smooth transition, so use: basePosition - maxRatio * thumbHalfWidth
-  const baseMaxThumbLeft = trackMargin + maxRatio * actualAvailableWidth - thumbHalfWidth;
-  // At 1.0, shift by thumbHalfWidth to align right edge: -thumbHalfWidth
-  const maxThumbLeft = baseMaxThumbLeft - maxRatio * thumbHalfWidth;
-  
-  // Active track positioning aligns with track background
-  const activeTrackLeft = trackMargin + minRatio * actualAvailableWidth;
-  // Active track extends from min thumb center to max thumb center
-  // Max thumb center = maxThumbLeft + thumbHalfWidth
-  const maxThumbCenter = maxThumbLeft + thumbHalfWidth;
-  const activeTrackWidth = maxThumbCenter - activeTrackLeft;
-  
-  return (
-    <View style={styles.sliderContainer}>
-      <View 
-        style={styles.sliderTrackContainer} 
-        ref={trackContainerRef}
-        onLayout={(event) => {
-          const { width } = event.nativeEvent.layout;
-          if (width > 0 && width !== trackContainerWidthRef.current) {
-            trackContainerWidthRef.current = width;
-            // Update state to trigger re-render with correct positioning
-            setContainerWidth(width);
-          }
-        }}
-      >
-        {/* Background track */}
-        <View style={styles.sliderTrackBackground} />
-        
-        {/* Active range track */}
-        <View
-          style={[
-            styles.sliderTrackActive,
-            {
-              left: activeTrackLeft,
-              width: Math.max(0, activeTrackWidth),
-            },
-          ]}
-        />
-        
-        {/* Min thumb */}
-        <View
-          style={[styles.sliderThumb, { transform: [{ translateX: minThumbLeft }] }]}
-          {...minPanResponder.panHandlers}
-        >
-          <View style={styles.sliderThumbInner} />
-        </View>
-        
-        {/* Max thumb */}
-        <View
-          style={[styles.sliderThumb, { transform: [{ translateX: maxThumbLeft }] }]}
-          {...maxPanResponder.panHandlers}
-        >
-          <View style={styles.sliderThumbInner} />
-        </View>
-      </View>
-      
-      {/* Price labels */}
-      <View style={styles.sliderLabels}>
-        <View style={styles.sliderLabel}>
-          <Text style={styles.sliderLabelValue}>
-            ${currentMin ? formatPriceJmd(currentMin) : formatPriceJmd(minPrice)}
-          </Text>
-          <Text style={styles.sliderLabelText}>Min</Text>
-        </View>
-        <View style={styles.sliderLabel}>
-          <Text style={styles.sliderLabelValue}>
-            ${currentMax ? formatPriceJmd(currentMax) : formatPriceJmd(maxPrice)}
-          </Text>
-          <Text style={styles.sliderLabelText}>Max</Text>
-        </View>
-      </View>
-    </View>
-  );
-}
-
-export interface FilterState {
-  brands: string[];
-  categories: string[];
-  partnerStores: string[];
-  inStock: boolean | null;
-  quickDelivery: boolean | null;
-  priceRange: {
-    min: number | null;
-    max: number | null;
-  };
-  dietaryRestrictions: {
-    vegan: boolean;
-    vegetarian: boolean;
-    glutenFree: boolean;
-  };
-}
-
-export interface ProductFiltersProps {
+interface ProductFiltersProps {
+  filters: ProductFiltersType;
+  onFiltersChange: (filters: ProductFiltersType) => void;
+  userId?: string | null;
   visible: boolean;
   onClose: () => void;
-  onFiltersChange: (filters: FilterState) => void;
-  searchResults: SearchResult[];
-  initialFilters?: Partial<FilterState>;
-}
-
-// Extract unique values from search results
-function extractFilterOptions(results: SearchResult[]) {
-  const brands = new Set<string>();
-  const categories = new Set<string>();
-  const stores = new Set<string>();
-  const prices: number[] = [];
-
-  results.forEach((result) => {
-    if (result.brand) brands.add(result.brand);
-    if (result.category?.name) categories.add(result.category.name);
-    // Include store location name and display name for better filtering
-    if (result.storeLocation?.display_name) {
-      stores.add(result.storeLocation.display_name);
-    } else if (result.storeLocation?.name) {
-      stores.add(result.storeLocation.name);
-    }
-    // Collect prices for range calculation
-    if (result.priceJmdCents > 0) {
-      prices.push(result.priceJmdCents);
-    }
-  });
-
-  const sortedPrices = prices.sort((a, b) => a - b);
-  const minPrice = sortedPrices.length > 0 ? sortedPrices[0] : 0;
-  const maxPrice = sortedPrices.length > 0 ? sortedPrices[sortedPrices.length - 1] : 0;
-
-  return {
-    brands: Array.from(brands).sort(),
-    categories: Array.from(categories).sort(),
-    stores: Array.from(stores).sort(),
-    priceRange: {
-      min: minPrice,
-      max: maxPrice,
-    },
-  };
-}
-
-
-// Multi-select chip component
-function MultiSelectChips({
-  options,
-  selected,
-  onToggle,
-  label,
-}: {
-  options: string[];
-  selected: string[];
-  onToggle: (option: string) => void;
-  label: string;
-}) {
-  if (options.length === 0) return null;
-
-  return (
-    <View style={styles.filterSection}>
-      <Text style={styles.filterSectionTitle}>{label}</Text>
-      <View style={styles.chipsContainer}>
-        {options.map((option) => {
-          const isSelected = selected.includes(option);
-          return (
-            <TouchableOpacity
-              key={option}
-              style={[styles.chip, isSelected && styles.chipSelected]}
-              onPress={() => onToggle(option)}
-              activeOpacity={0.7}
-            >
-              <Text style={[styles.chipText, isSelected && styles.chipTextSelected]}>
-                {option}
-              </Text>
-              {isSelected && (
-                <Ionicons name="checkmark" size={16} color="#FFFFFF" style={styles.chipIcon} />
-              )}
-            </TouchableOpacity>
-          );
-        })}
-      </View>
-    </View>
-  );
 }
 
 export default function ProductFilters({
+  filters,
+  onFiltersChange,
+  userId,
   visible,
   onClose,
-  onFiltersChange,
-  searchResults,
-  initialFilters,
 }: ProductFiltersProps) {
-  const options = extractFilterOptions(searchResults);
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [brands, setBrands] = useState<string[]>([]);
+  const [addresses, setAddresses] = useState<Address[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [searchCategoryQuery, setSearchCategoryQuery] = useState("");
+  const [searchBrandQuery, setSearchBrandQuery] = useState("");
 
-  const [filters, setFilters] = useState<FilterState>({
-    brands: initialFilters?.brands || [],
-    categories: initialFilters?.categories || [],
-    partnerStores: initialFilters?.partnerStores || [],
-    inStock: initialFilters?.inStock ?? null,
-    quickDelivery: initialFilters?.quickDelivery ?? null,
-    priceRange: initialFilters?.priceRange || {
-      min: null,
-      max: null,
-    },
-    dietaryRestrictions: initialFilters?.dietaryRestrictions || {
-      vegan: false,
-      vegetarian: false,
-      glutenFree: false,
-    },
-  });
-
-  // Get price range from search results for display
-  const priceRange = extractFilterOptions(searchResults).priceRange;
-
-  // Local state for slider values (not applied to filters until Done is pressed)
-  const [sliderPriceRange, setSliderPriceRange] = useState<{
-    min: number | null;
-    max: number | null;
-  }>({
-    min: filters.priceRange.min,
-    max: filters.priceRange.max,
-  });
-
-  // Initialize slider values from filters when modal opens
+  // Load filter options when modal opens
   useEffect(() => {
     if (visible) {
-      setSliderPriceRange({
-        min: initialFilters?.priceRange?.min ?? filters.priceRange.min,
-        max: initialFilters?.priceRange?.max ?? filters.priceRange.max,
-      });
+      loadFilterOptions();
     }
-  }, [visible, initialFilters?.priceRange?.min, initialFilters?.priceRange?.max]);
+  }, [visible, userId]);
 
-  // Apply filters immediately when they change (but not on initial mount)
-  // Note: Price changes from slider are stored in sliderPriceRange and only applied on Done
-  const isInitialMount = useRef(true);
-  const skipNextPriceChange = useRef(false);
+  const loadFilterOptions = async () => {
+    setIsLoading(true);
+    try {
+      const [categoriesData, brandsData] = await Promise.all([
+        getAllCategories(),
+        getAllBrands(),
+      ]);
+      setCategories(categoriesData);
+      setBrands(brandsData);
 
-  useEffect(() => {
-    if (isInitialMount.current) {
-      isInitialMount.current = false;
-      // Don't call onFiltersChange on initial mount - parent already has initial state
-      return;
+      // Load user addresses if userId is provided
+      if (userId) {
+        try {
+          const userAddresses = await getAddresses(userId);
+          setAddresses(userAddresses);
+        } catch (error) {
+          console.error("Error loading addresses:", error);
+        }
+      }
+    } catch (error) {
+      console.error("Error loading filter options:", error);
+    } finally {
+      setIsLoading(false);
     }
-
-    // Apply filters immediately (excluding price which is handled separately)
-    // We apply all filters here since priceRange in filters is only updated on Done
-    onFiltersChange(filters);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    filters.brands,
-    filters.categories,
-    filters.partnerStores,
-    filters.inStock,
-    filters.quickDelivery,
-    filters.dietaryRestrictions,
-  ]);
+  };
 
   const toggleBrand = (brand: string) => {
-    setFilters((prev) => {
-      const newBrands = prev.brands.includes(brand)
-        ? prev.brands.filter((b) => b !== brand)
-        : [...prev.brands, brand];
-      return {
-        ...prev,
-        brands: newBrands,
-      };
-    });
+    const currentBrands = filters.brands || [];
+    const newBrands = currentBrands.includes(brand)
+      ? currentBrands.filter((b) => b !== brand)
+      : [...currentBrands, brand];
+    onFiltersChange({ ...filters, brands: newBrands.length > 0 ? newBrands : undefined });
   };
 
-  const toggleCategory = (category: string) => {
-    setFilters((prev) => {
-      const newCategories = prev.categories.includes(category)
-        ? prev.categories.filter((c) => c !== category)
-        : [...prev.categories, category];
-      return {
-        ...prev,
-        categories: newCategories,
-      };
-    });
+  const toggleCategory = (categoryId: string) => {
+    const currentCategoryIds = filters.categoryIds || [];
+    const newCategoryIds = currentCategoryIds.includes(categoryId)
+      ? currentCategoryIds.filter((id) => id !== categoryId)
+      : [...currentCategoryIds, categoryId];
+    onFiltersChange({ ...filters, categoryIds: newCategoryIds.length > 0 ? newCategoryIds : undefined });
   };
 
-  const toggleStore = (store: string) => {
-    setFilters((prev) => {
-      const newStores = prev.partnerStores.includes(store)
-        ? prev.partnerStores.filter((s) => s !== store)
-        : [...prev.partnerStores, store];
-      return {
-        ...prev,
-        partnerStores: newStores,
-      };
-    });
-  };
-
-  const clearAllFilters = () => {
-    const defaultFilters: FilterState = {
-      brands: [],
-      categories: [],
-      partnerStores: [],
-      inStock: null,
-      quickDelivery: null,
-      priceRange: {
-        min: null,
-        max: null,
-      },
-      dietaryRestrictions: {
-        vegan: false,
-        vegetarian: false,
-        glutenFree: false,
-      },
-    };
-    setFilters(defaultFilters);
-    setSliderPriceRange({ min: null, max: null });
-    // onFiltersChange will be called via useEffect
-  };
-
-  // Apply slider price values to filters and close modal
-  const handleDone = () => {
-    setFilters((prev) => ({
-      ...prev,
-      priceRange: sliderPriceRange,
-    }));
-    // Apply all filters including price
+  const setPriceRange = (min?: number, max?: number) => {
     onFiltersChange({
       ...filters,
-      priceRange: sliderPriceRange,
+      minPrice: min,
+      maxPrice: max,
     });
-    onClose();
+  };
+
+  const toggleAvailability = () => {
+    onFiltersChange({
+      ...filters,
+      inStock: filters.inStock === false ? undefined : false,
+    });
+  };
+
+  const setDeliveryAddress = (address: Address | null) => {
+    onFiltersChange({
+      ...filters,
+      deliveryParish: address?.parish,
+    });
+  };
+
+  const clearFilters = () => {
+    onFiltersChange({});
+  };
+
+  const removeBrandFilter = (brand: string) => {
+    const newBrands = (filters.brands || []).filter((b) => b !== brand);
+    onFiltersChange({ ...filters, brands: newBrands.length > 0 ? newBrands : undefined });
+  };
+
+  const removeCategoryFilter = (categoryId: string) => {
+    const newCategoryIds = (filters.categoryIds || []).filter((id) => id !== categoryId);
+    onFiltersChange({ ...filters, categoryIds: newCategoryIds.length > 0 ? newCategoryIds : undefined });
   };
 
   const hasActiveFilters = () => {
-    return (
-      filters.brands.length > 0 ||
-      filters.categories.length > 0 ||
-      filters.partnerStores.length > 0 ||
-      filters.inStock !== null ||
-      filters.quickDelivery !== null ||
-      filters.priceRange.min !== null ||
-      filters.priceRange.max !== null ||
-      filters.dietaryRestrictions.vegan ||
-      filters.dietaryRestrictions.vegetarian ||
-      filters.dietaryRestrictions.glutenFree
+    return !!(
+      (filters.brands && filters.brands.length > 0) ||
+      (filters.categoryIds && filters.categoryIds.length > 0) ||
+      filters.minPrice !== undefined ||
+      filters.maxPrice !== undefined ||
+      filters.inStock === false ||
+      filters.deliveryParish
     );
   };
+
+  const filteredCategories = categories.filter((cat) =>
+    cat.name.toLowerCase().includes(searchCategoryQuery.toLowerCase())
+  );
+
+  const filteredBrands = brands.filter((brand) =>
+    brand.toLowerCase().includes(searchBrandQuery.toLowerCase())
+  );
+
+  const defaultAddress = addresses.find((addr) => addr.default) || addresses[0];
+  const activeBrandsCount = filters.brands?.length || 0;
+  const activeCategoriesCount = filters.categoryIds?.length || 0;
 
   return (
     <Modal
@@ -649,208 +153,340 @@ export default function ProductFilters({
       presentationStyle="pageSheet"
       onRequestClose={onClose}
     >
-      <View style={styles.container}>
+      <SafeAreaView style={styles.container} edges={["top"]}>
         {/* Header */}
         <View style={styles.header}>
-          <Text style={styles.headerTitle}>Filters</Text>
-          <TouchableOpacity onPress={onClose} style={styles.closeButton}>
-            <Ionicons name="close" size={24} color="#111827" />
-          </TouchableOpacity>
+          <View style={styles.headerLeft}>
+            <Text style={styles.headerTitle}>Filters</Text>
+            {hasActiveFilters() && (
+              <View style={styles.activeBadge}>
+                <Text style={styles.activeBadgeText}>
+                  {activeBrandsCount + activeCategoriesCount + (filters.deliveryParish ? 1 : 0) + (filters.inStock === false ? 1 : 0) + (filters.minPrice || filters.maxPrice ? 1 : 0)}
+                </Text>
+              </View>
+            )}
+          </View>
+          <View style={styles.headerRight}>
+            {hasActiveFilters() && (
+              <TouchableOpacity onPress={clearFilters} style={styles.clearAllButton}>
+                <Text style={styles.clearAllText}>Clear All</Text>
+              </TouchableOpacity>
+            )}
+            <TouchableOpacity onPress={onClose} style={styles.closeButton}>
+              <Ionicons name="close" size={24} color="#111827" />
+            </TouchableOpacity>
+          </View>
         </View>
 
-        <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
-          {/* Multi-select Filters */}
-          <MultiSelectChips
-            options={options.brands}
-            selected={filters.brands}
-            onToggle={toggleBrand}
-            label="Brand"
-          />
+        {isLoading ? (
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color="#10B981" />
+            <Text style={styles.loadingText}>Loading filters...</Text>
+          </View>
+        ) : (
+          <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+            {/* Active Filters Summary */}
+            {hasActiveFilters() && (
+              <View style={styles.activeFiltersContainer}>
+                <Text style={styles.activeFiltersTitle}>Active Filters</Text>
+                <View style={styles.activeFiltersChips}>
+                  {filters.brands?.map((brand) => (
+                    <TouchableOpacity
+                      key={brand}
+                      style={styles.filterChip}
+                      onPress={() => removeBrandFilter(brand)}
+                    >
+                      <Text style={styles.filterChipText}>{brand}</Text>
+                      <Ionicons name="close-circle" size={16} color="#6B7280" />
+                    </TouchableOpacity>
+                  ))}
+                  {filters.categoryIds?.map((categoryId) => {
+                    const category = categories.find((c) => c.$id === categoryId);
+                    return category ? (
+                      <TouchableOpacity
+                        key={categoryId}
+                        style={styles.filterChip}
+                        onPress={() => removeCategoryFilter(categoryId)}
+                      >
+                        <Text style={styles.filterChipText}>{category.name}</Text>
+                        <Ionicons name="close-circle" size={16} color="#6B7280" />
+                      </TouchableOpacity>
+                    ) : null;
+                  })}
+                  {filters.deliveryParish && (
+                    <View style={styles.filterChip}>
+                      <Text style={styles.filterChipText}>Delivery: {filters.deliveryParish}</Text>
+                      <TouchableOpacity
+                        onPress={() => setDeliveryAddress(null)}
+                        style={{ marginLeft: 4 }}
+                      >
+                        <Ionicons name="close-circle" size={16} color="#6B7280" />
+                      </TouchableOpacity>
+                    </View>
+                  )}
+                  {(filters.minPrice || filters.maxPrice) && (
+                    <View style={styles.filterChip}>
+                      <Text style={styles.filterChipText}>
+                        ${filters.minPrice ? (filters.minPrice / 100).toFixed(0) : "0"} - ${filters.maxPrice ? (filters.maxPrice / 100).toFixed(0) : "∞"}
+                      </Text>
+                      <TouchableOpacity
+                        onPress={() => setPriceRange(undefined, undefined)}
+                        style={{ marginLeft: 4 }}
+                      >
+                        <Ionicons name="close-circle" size={16} color="#6B7280" />
+                      </TouchableOpacity>
+                    </View>
+                  )}
+                  {filters.inStock === false && (
+                    <View style={styles.filterChip}>
+                      <Text style={styles.filterChipText}>Include Out of Stock</Text>
+                      <TouchableOpacity
+                        onPress={toggleAvailability}
+                        style={{ marginLeft: 4 }}
+                      >
+                        <Ionicons name="close-circle" size={16} color="#6B7280" />
+                      </TouchableOpacity>
+                    </View>
+                  )}
+                </View>
+              </View>
+            )}
 
-          <MultiSelectChips
-            options={options.categories}
-            selected={filters.categories}
-            onToggle={toggleCategory}
-            label="Category"
-          />
+            {/* Delivery Address Filter */}
+            {addresses.length > 0 && (
+              <View style={styles.section}>
+                <View style={styles.sectionHeader}>
+                  <Ionicons name="location" size={20} color="#10B981" />
+                  <Text style={styles.sectionTitle}>Delivery Location</Text>
+                </View>
+                <Text style={styles.sectionDescription}>
+                  Show products available for delivery to this address
+                </Text>
+                <TouchableOpacity
+                  style={[
+                    styles.optionCard,
+                    filters.deliveryParish === defaultAddress?.parish && styles.optionCardSelected,
+                  ]}
+                  onPress={() => {
+                    if (filters.deliveryParish === defaultAddress?.parish) {
+                      setDeliveryAddress(null);
+                    } else {
+                      setDeliveryAddress(defaultAddress || null);
+                    }
+                  }}
+                >
+                  <View style={styles.optionCardContent}>
+                    <View style={styles.optionCardLeft}>
+                      <Ionicons
+                        name={filters.deliveryParish === defaultAddress?.parish ? "radio-button-on" : "radio-button-off"}
+                        size={22}
+                        color={filters.deliveryParish === defaultAddress?.parish ? "#10B981" : "#D1D5DB"}
+                      />
+                      <View style={styles.addressContent}>
+                        <Text style={styles.addressLabel}>{defaultAddress?.label || "Default Address"}</Text>
+                        <Text style={styles.addressDetails}>
+                          {defaultAddress?.parish}, {defaultAddress?.community}
+                        </Text>
+                      </View>
+                    </View>
+                  </View>
+                </TouchableOpacity>
+              </View>
+            )}
 
-          <MultiSelectChips
-            options={options.stores}
-            selected={filters.partnerStores}
-            onToggle={toggleStore}
-            label="Partner Store"
-          />
+            {/* Price Range Filter */}
+            <View style={styles.section}>
+              <View style={styles.sectionHeader}>
+                <Ionicons name="pricetag" size={20} color="#10B981" />
+                <Text style={styles.sectionTitle}>Price Range</Text>
+              </View>
+              <Text style={styles.sectionDescription}>
+                Set your budget range in JMD
+              </Text>
+              <View style={styles.priceContainer}>
+                <View style={styles.priceInputWrapper}>
+                  <Text style={styles.priceInputLabel}>Min</Text>
+                  <View style={styles.priceInputBox}>
+                    <Text style={styles.currencySymbol}>JMD $</Text>
+                    <TextInput
+                      style={styles.priceInput}
+                      placeholder="0"
+                      keyboardType="numeric"
+                      value={filters.minPrice !== undefined ? (filters.minPrice / 100).toString() : ""}
+                      onChangeText={(text) => {
+                        const value = parseFloat(text);
+                        setPriceRange(isNaN(value) ? undefined : Math.round(value * 100), filters.maxPrice);
+                      }}
+                    />
+                  </View>
+                </View>
+                <Text style={styles.priceTo}>to</Text>
+                <View style={styles.priceInputWrapper}>
+                  <Text style={styles.priceInputLabel}>Max</Text>
+                  <View style={styles.priceInputBox}>
+                    <Text style={styles.currencySymbol}>JMD $</Text>
+                    <TextInput
+                      style={styles.priceInput}
+                      placeholder="No limit"
+                      keyboardType="numeric"
+                      value={filters.maxPrice !== undefined ? (filters.maxPrice / 100).toString() : ""}
+                      onChangeText={(text) => {
+                        const value = parseFloat(text);
+                        setPriceRange(filters.minPrice, isNaN(value) ? undefined : Math.round(value * 100));
+                      }}
+                    />
+                  </View>
+                </View>
+              </View>
+            </View>
 
-          {/* Price Range Filter */}
-          {priceRange.min > 0 && priceRange.max > 0 && (
-            <View style={styles.filterSection}>
-              <Text style={styles.filterSectionTitle}>Price Range (JMD)</Text>
-              <PriceRangeSlider
-                minPrice={priceRange.min}
-                maxPrice={priceRange.max}
-                currentMin={sliderPriceRange.min}
-                currentMax={sliderPriceRange.max}
-                onValueChange={(min, max) => {
-                  // Update slider state but don't apply filters yet
-                  setSliderPriceRange({ min, max });
-                }}
-              />
+            {/* Availability Filter */}
+            <View style={styles.section}>
+              <View style={styles.sectionHeader}>
+                <Ionicons name="checkbox" size={20} color="#10B981" />
+                <Text style={styles.sectionTitle}>Availability</Text>
+              </View>
               <TouchableOpacity
                 style={[
-                  styles.resetPriceButton,
-                  sliderPriceRange.min === null && sliderPriceRange.max === null && styles.resetPriceButtonDisabled,
+                  styles.optionCard,
+                  filters.inStock === false && styles.optionCardSelected,
                 ]}
-                onPress={() => {
-                  setSliderPriceRange({ min: null, max: null });
-                }}
-                disabled={sliderPriceRange.min === null && sliderPriceRange.max === null}
+                onPress={toggleAvailability}
               >
-                <Text
-                  style={[
-                    styles.resetPriceButtonText,
-                    sliderPriceRange.min === null && sliderPriceRange.max === null && styles.resetPriceButtonTextDisabled,
-                  ]}
-                >
-                  Reset Price
-                </Text>
-              </TouchableOpacity>
-            </View>
-          )}
-
-          {/* Availability Toggles */}
-          <View style={styles.filterSection}>
-            <Text style={styles.filterSectionTitle}>Availability</Text>
-            <View style={styles.toggleRow}>
-              <Text style={styles.toggleLabel}>In Stock</Text>
-              <Switch
-                value={filters.inStock === true}
-                onValueChange={(value) =>
-                  setFilters((prev) => ({ ...prev, inStock: value ? true : null }))
-                }
-                trackColor={{ false: "#E5E7EB", true: "#10B981" }}
-                thumbColor="#FFFFFF"
-              />
-            </View>
-            <View style={styles.toggleRow}>
-              <Text style={styles.toggleLabel}>Quick Delivery</Text>
-              <Switch
-                value={filters.quickDelivery === true}
-                onValueChange={(value) =>
-                  setFilters((prev) => ({ ...prev, quickDelivery: value ? true : null }))
-                }
-                trackColor={{ false: "#E5E7EB", true: "#10B981" }}
-                thumbColor="#FFFFFF"
-              />
-            </View>
-          </View>
-
-          {/* Dietary Restrictions */}
-          <View style={styles.filterSection}>
-            <Text style={styles.filterSectionTitle}>Dietary Restrictions</Text>
-            <View style={styles.checkboxRow}>
-              <TouchableOpacity
-                style={styles.checkboxContainer}
-                onPress={() =>
-                  setFilters((prev) => ({
-                    ...prev,
-                    dietaryRestrictions: {
-                      ...prev.dietaryRestrictions,
-                      vegan: !prev.dietaryRestrictions.vegan,
-                    },
-                  }))
-                }
-                activeOpacity={0.7}
-              >
-                <View
-                  style={[
-                    styles.checkbox,
-                    filters.dietaryRestrictions.vegan && styles.checkboxChecked,
-                  ]}
-                >
-                  {filters.dietaryRestrictions.vegan && (
-                    <Ionicons name="checkmark" size={16} color="#FFFFFF" />
-                  )}
+                <View style={styles.optionCardContent}>
+                  <Ionicons
+                    name={filters.inStock === false ? "checkbox" : "square-outline"}
+                    size={24}
+                    color={filters.inStock === false ? "#10B981" : "#D1D5DB"}
+                  />
+                  <Text style={[
+                    styles.checkboxLabel,
+                    filters.inStock === false && styles.checkboxLabelSelected
+                  ]}>
+                    Include out of stock items
+                  </Text>
                 </View>
-                <Text style={styles.checkboxLabel}>Vegan</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={styles.checkboxContainer}
-                onPress={() =>
-                  setFilters((prev) => ({
-                    ...prev,
-                    dietaryRestrictions: {
-                      ...prev.dietaryRestrictions,
-                      vegetarian: !prev.dietaryRestrictions.vegetarian,
-                    },
-                  }))
-                }
-                activeOpacity={0.7}
-              >
-                <View
-                  style={[
-                    styles.checkbox,
-                    filters.dietaryRestrictions.vegetarian && styles.checkboxChecked,
-                  ]}
-                >
-                  {filters.dietaryRestrictions.vegetarian && (
-                    <Ionicons name="checkmark" size={16} color="#FFFFFF" />
-                  )}
-                </View>
-                <Text style={styles.checkboxLabel}>Vegetarian</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={styles.checkboxContainer}
-                onPress={() =>
-                  setFilters((prev) => ({
-                    ...prev,
-                    dietaryRestrictions: {
-                      ...prev.dietaryRestrictions,
-                      glutenFree: !prev.dietaryRestrictions.glutenFree,
-                    },
-                  }))
-                }
-                activeOpacity={0.7}
-              >
-                <View
-                  style={[
-                    styles.checkbox,
-                    filters.dietaryRestrictions.glutenFree && styles.checkboxChecked,
-                  ]}
-                >
-                  {filters.dietaryRestrictions.glutenFree && (
-                    <Ionicons name="checkmark" size={16} color="#FFFFFF" />
-                  )}
-                </View>
-                <Text style={styles.checkboxLabel}>Gluten-free</Text>
               </TouchableOpacity>
             </View>
-          </View>
-        </ScrollView>
 
-        {/* Footer */}
-        <View style={styles.footer}>
-          <TouchableOpacity
-            style={[styles.clearButton, !hasActiveFilters() && styles.clearButtonDisabled]}
-            onPress={clearAllFilters}
-            disabled={!hasActiveFilters()}
-            activeOpacity={0.7}
-          >
-            <Text
-              style={[
-                styles.clearButtonText,
-                !hasActiveFilters() && styles.clearButtonTextDisabled,
-              ]}
-            >
-              Clear All Filters
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.doneButton} onPress={handleDone} activeOpacity={0.8}>
-            <Text style={styles.doneButtonText}>Done</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
+            {/* Category Filter */}
+            <View style={styles.section}>
+              <View style={styles.sectionHeader}>
+                <Ionicons name="grid" size={20} color="#10B981" />
+                <Text style={styles.sectionTitle}>Categories</Text>
+                {activeCategoriesCount > 0 && (
+                  <View style={styles.countBadge}>
+                    <Text style={styles.countBadgeText}>{activeCategoriesCount}</Text>
+                  </View>
+                )}
+              </View>
+              <View style={styles.searchBox}>
+                <Ionicons name="search-outline" size={18} color="#9CA3AF" />
+                <TextInput
+                  style={styles.searchInput}
+                  placeholder="Search categories..."
+                  placeholderTextColor="#9CA3AF"
+                  value={searchCategoryQuery}
+                  onChangeText={setSearchCategoryQuery}
+                />
+                {searchCategoryQuery.length > 0 && (
+                  <TouchableOpacity onPress={() => setSearchCategoryQuery("")}>
+                    <Ionicons name="close-circle" size={18} color="#9CA3AF" />
+                  </TouchableOpacity>
+                )}
+              </View>
+              <View style={styles.optionsList}>
+                {filteredCategories.slice(0, 10).map((category) => {
+                  const isSelected = filters.categoryIds?.includes(category.$id) || false;
+                  return (
+                    <TouchableOpacity
+                      key={category.$id}
+                      style={[
+                        styles.optionCard,
+                        isSelected && styles.optionCardSelected,
+                      ]}
+                      onPress={() => toggleCategory(category.$id)}
+                    >
+                      <View style={styles.optionCardContent}>
+                        <Ionicons
+                          name={isSelected ? "checkbox" : "square-outline"}
+                          size={22}
+                          color={isSelected ? "#10B981" : "#D1D5DB"}
+                        />
+                        <Text style={[
+                          styles.optionLabel,
+                          isSelected && styles.optionLabelSelected
+                        ]}>
+                          {category.name}
+                        </Text>
+                      </View>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </View>
+
+            {/* Brand Filter */}
+            <View style={styles.section}>
+              <View style={styles.sectionHeader}>
+                <Ionicons name="pricetags" size={20} color="#10B981" />
+                <Text style={styles.sectionTitle}>Brands</Text>
+                {activeBrandsCount > 0 && (
+                  <View style={styles.countBadge}>
+                    <Text style={styles.countBadgeText}>{activeBrandsCount}</Text>
+                  </View>
+                )}
+              </View>
+              <View style={styles.searchBox}>
+                <Ionicons name="search-outline" size={18} color="#9CA3AF" />
+                <TextInput
+                  style={styles.searchInput}
+                  placeholder="Search brands..."
+                  placeholderTextColor="#9CA3AF"
+                  value={searchBrandQuery}
+                  onChangeText={setSearchBrandQuery}
+                />
+                {searchBrandQuery.length > 0 && (
+                  <TouchableOpacity onPress={() => setSearchBrandQuery("")}>
+                    <Ionicons name="close-circle" size={18} color="#9CA3AF" />
+                  </TouchableOpacity>
+                )}
+              </View>
+              <View style={styles.optionsList}>
+                {filteredBrands.slice(0, 10).map((brand) => {
+                  const isSelected = filters.brands?.includes(brand) || false;
+                  return (
+                    <TouchableOpacity
+                      key={brand}
+                      style={[
+                        styles.optionCard,
+                        isSelected && styles.optionCardSelected,
+                      ]}
+                      onPress={() => toggleBrand(brand)}
+                    >
+                      <View style={styles.optionCardContent}>
+                        <Ionicons
+                          name={isSelected ? "checkbox" : "square-outline"}
+                          size={22}
+                          color={isSelected ? "#10B981" : "#D1D5DB"}
+                        />
+                        <Text style={[
+                          styles.optionLabel,
+                          isSelected && styles.optionLabelSelected
+                        ]}>
+                          {brand}
+                        </Text>
+                      </View>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </View>
+
+            <View style={styles.bottomSpacer} />
+          </ScrollView>
+        )}
+      </SafeAreaView>
     </Modal>
   );
 }
@@ -864,225 +500,255 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    paddingHorizontal: 16,
+    paddingHorizontal: 20,
     paddingVertical: 16,
     borderBottomWidth: 1,
     borderBottomColor: "#E5E7EB",
+    backgroundColor: "#FFFFFF",
+  },
+  headerLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
   },
   headerTitle: {
-    fontSize: 24,
+    fontSize: 22,
     fontWeight: "700",
     color: "#111827",
+  },
+  activeBadge: {
+    backgroundColor: "#10B981",
+    borderRadius: 12,
+    minWidth: 24,
+    height: 24,
+    paddingHorizontal: 8,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  activeBadgeText: {
+    color: "#FFFFFF",
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  headerRight: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 16,
+  },
+  clearAllButton: {
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+  },
+  clearAllText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#EF4444",
   },
   closeButton: {
     padding: 4,
   },
-  scrollView: {
+  content: {
     flex: 1,
   },
-  scrollContent: {
-    paddingHorizontal: 16,
-    paddingVertical: 20,
+  loadingContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    paddingVertical: 60,
   },
-  filterSection: {
-    marginBottom: 32,
+  loadingText: {
+    marginTop: 12,
+    fontSize: 14,
+    color: "#6B7280",
   },
-  filterSectionTitle: {
-    fontSize: 18,
+  activeFiltersContainer: {
+    backgroundColor: "#F9FAFB",
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: "#E5E7EB",
+  },
+  activeFiltersTitle: {
+    fontSize: 14,
     fontWeight: "600",
-    color: "#111827",
-    marginBottom: 16,
+    color: "#6B7280",
+    marginBottom: 12,
   },
-  chipsContainer: {
+  activeFiltersChips: {
     flexDirection: "row",
     flexWrap: "wrap",
     gap: 8,
   },
-  chip: {
+  filterChip: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 20,
-    backgroundColor: "#F3F4F6",
+    backgroundColor: "#FFFFFF",
     borderWidth: 1,
-    borderColor: "#E5E7EB",
-  },
-  chipSelected: {
-    backgroundColor: "#10B981",
     borderColor: "#10B981",
+    borderRadius: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    gap: 6,
   },
-  chipText: {
-    fontSize: 14,
-    color: "#374151",
+  filterChipText: {
+    fontSize: 13,
+    color: "#10B981",
     fontWeight: "500",
   },
-  chipTextSelected: {
-    color: "#FFFFFF",
-  },
-  chipIcon: {
-    marginLeft: 6,
-  },
-  toggleRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingVertical: 12,
+  section: {
+    paddingHorizontal: 20,
+    paddingVertical: 20,
     borderBottomWidth: 1,
     borderBottomColor: "#F3F4F6",
   },
-  toggleLabel: {
-    fontSize: 16,
-    color: "#374151",
-  },
-  checkboxRow: {
-    gap: 16,
-  },
-  checkboxContainer: {
+  sectionHeader: {
     flexDirection: "row",
     alignItems: "center",
-    paddingVertical: 8,
+    gap: 10,
+    marginBottom: 8,
   },
-  checkbox: {
-    width: 24,
-    height: 24,
-    borderRadius: 4,
-    borderWidth: 2,
-    borderColor: "#D1D5DB",
-    marginRight: 12,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  checkboxChecked: {
-    backgroundColor: "#10B981",
-    borderColor: "#10B981",
-  },
-  checkboxLabel: {
-    fontSize: 16,
-    color: "#374151",
-  },
-  footer: {
-    flexDirection: "row",
-    paddingHorizontal: 16,
-    paddingVertical: 16,
-    borderTopWidth: 1,
-    borderTopColor: "#E5E7EB",
-    gap: 12,
-  },
-  clearButton: {
-    flex: 1,
-    paddingVertical: 14,
-    borderRadius: 12,
-    backgroundColor: "#F3F4F6",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  clearButtonDisabled: {
-    opacity: 0.5,
-  },
-  clearButtonText: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#374151",
-  },
-  clearButtonTextDisabled: {
-    color: "#9CA3AF",
-  },
-  doneButton: {
-    flex: 1,
-    paddingVertical: 14,
-    borderRadius: 12,
-    backgroundColor: "#10B981",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  doneButtonText: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#FFFFFF",
-  },
-  sliderContainer: {
-    marginBottom: 24,
-  },
-  sliderTrackContainer: {
-    height: 40,
-    justifyContent: "center",
-    marginVertical: 16,
-    position: "relative",
-  },
-  sliderTrackBackground: {
-    height: 6,
-    backgroundColor: "#E5E7EB",
-    borderRadius: 3,
-    marginHorizontal: 12,
-  },
-  sliderTrackActive: {
-    position: "absolute",
-    height: 6,
-    backgroundColor: "#10B981",
-    borderRadius: 3,
-    top: 17,
-  },
-  sliderThumb: {
-    position: "absolute",
-    width: 24,
-    height: 24,
-    top: 8,
-    zIndex: 1,
-  },
-  sliderThumbInner: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: "#FFFFFF",
-    borderWidth: 2,
-    borderColor: "#10B981",
-    shadowColor: "#000",
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.2,
-    shadowRadius: 3,
-    elevation: 3,
-  },
-  sliderLabels: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    marginTop: 8,
-  },
-  sliderLabel: {
-    alignItems: "center",
-  },
-  sliderLabelValue: {
-    fontSize: 16,
+  sectionTitle: {
+    fontSize: 18,
     fontWeight: "600",
     color: "#111827",
-    marginBottom: 4,
   },
-  sliderLabelText: {
-    fontSize: 12,
+  sectionDescription: {
+    fontSize: 14,
     color: "#6B7280",
+    marginBottom: 16,
+    lineHeight: 20,
+  },
+  countBadge: {
+    backgroundColor: "#10B981",
+    borderRadius: 10,
+    minWidth: 20,
+    height: 20,
+    paddingHorizontal: 6,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  countBadgeText: {
+    color: "#FFFFFF",
+    fontSize: 11,
+    fontWeight: "700",
+  },
+  searchBox: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#F9FAFB",
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    marginBottom: 16,
+    gap: 10,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 15,
+    color: "#111827",
+    padding: 0,
+  },
+  optionsList: {
+    gap: 8,
+  },
+  optionCard: {
+    backgroundColor: "#F9FAFB",
+    borderWidth: 1.5,
+    borderColor: "#E5E7EB",
+    borderRadius: 12,
+    padding: 14,
+  },
+  optionCardSelected: {
+    backgroundColor: "#F0FDF4",
+    borderColor: "#10B981",
+  },
+  optionCardContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  optionCardLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    flex: 1,
+  },
+  optionLabel: {
+    fontSize: 15,
+    color: "#111827",
+    flex: 1,
+  },
+  optionLabelSelected: {
+    fontWeight: "600",
+    color: "#10B981",
+  },
+  checkboxLabel: {
+    fontSize: 15,
+    color: "#111827",
+    flex: 1,
+  },
+  checkboxLabelSelected: {
+    fontWeight: "600",
+    color: "#10B981",
+  },
+  addressContent: {
+    flex: 1,
+  },
+  addressLabel: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: "#111827",
+    marginBottom: 2,
+  },
+  addressDetails: {
+    fontSize: 13,
+    color: "#6B7280",
+  },
+  priceContainer: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+    gap: 12,
+  },
+  priceInputWrapper: {
+    flex: 1,
+  },
+  priceInputLabel: {
+    fontSize: 13,
+    color: "#6B7280",
+    marginBottom: 8,
     fontWeight: "500",
   },
-  resetPriceButton: {
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    borderRadius: 8,
-    backgroundColor: "#F3F4F6",
-    alignSelf: "flex-start",
-    opacity: 1,
-    marginTop: 8,
+  priceInputBox: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#F9FAFB",
+    borderWidth: 1.5,
+    borderColor: "#E5E7EB",
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
   },
-  resetPriceButtonDisabled: {
-    opacity: 0.4,
+  currencySymbol: {
+    fontSize: 15,
+    color: "#6B7280",
+    marginRight: 4,
+    fontWeight: "500",
   },
-  resetPriceButtonText: {
+  priceInput: {
+    flex: 1,
+    fontSize: 15,
+    color: "#111827",
+    padding: 0,
+  },
+  priceTo: {
     fontSize: 14,
-    fontWeight: "600",
-    color: "#374151",
-  },
-  resetPriceButtonTextDisabled: {
     color: "#9CA3AF",
+    marginBottom: 8,
+    fontWeight: "500",
+  },
+  bottomSpacer: {
+    height: 40,
   },
 });
