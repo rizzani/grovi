@@ -6,9 +6,11 @@ import { Ionicons } from "@expo/vector-icons";
 import Constants from "expo-constants";
 import SearchBar from "../../components/SearchBar";
 import ProductFilters from "../../components/ProductFilters";
+import SortPicker from "../../components/SortPicker";
 import { useSearch } from "../../contexts/SearchContext";
 import { useUser } from "../../contexts/UserContext";
 import { getSearchSuggestions, searchProducts, ProductFilters as ProductFiltersType } from "../../lib/search-service";
+import { SortMode } from "../../lib/search/ranking";
 
 export default function SearchScreen() {
   const params = useLocalSearchParams<{ q?: string }>();
@@ -20,6 +22,7 @@ export default function SearchScreen() {
   const [isSearching, setIsSearching] = useState(false);
   const [filters, setFilters] = useState<ProductFiltersType>({});
   const [showFilters, setShowFilters] = useState(false);
+  const [sortMode, setSortMode] = useState<SortMode>("relevance");
 
   // Update query when params change
   useEffect(() => {
@@ -45,7 +48,7 @@ export default function SearchScreen() {
     return () => clearTimeout(timeoutId);
   }, [searchQuery]);
 
-  const handleSearch = async (query: string, currentFilters?: ProductFiltersType) => {
+  const handleSearch = async (query: string, currentFilters?: ProductFiltersType, currentSortMode?: SortMode) => {
     if (!query.trim()) {
       setAllSearchResults([]);
       // Reset filters when search query is cleared
@@ -71,7 +74,8 @@ export default function SearchScreen() {
     setIsSearching(true);
     try {
       const filtersToUse = currentFilters !== undefined ? currentFilters : filters;
-      const results = await searchProducts(query, 50, undefined, "relevance", userId || null, filtersToUse);
+      const sortModeToUse = currentSortMode !== undefined ? currentSortMode : sortMode;
+      const results = await searchProducts(query, 50, undefined, sortModeToUse, userId || null, filtersToUse);
       setSearchResults(results);
     } catch (error) {
       console.error("Search error:", error);
@@ -85,7 +89,15 @@ export default function SearchScreen() {
     setFilters(newFilters);
     // Re-run search with new filters if we have a query
     if (searchQuery.trim()) {
-      handleSearch(searchQuery, newFilters);
+      handleSearch(searchQuery, newFilters, sortMode);
+    }
+  };
+
+  const handleSortChange = (newSortMode: SortMode) => {
+    setSortMode(newSortMode);
+    // Re-run search with new sort mode if we have a query
+    if (searchQuery.trim()) {
+      handleSearch(searchQuery, filters, newSortMode);
     }
   };
 
@@ -158,6 +170,29 @@ export default function SearchScreen() {
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
+        {/* Sort and Filter Bar - Show when there are results */}
+        {searchQuery && searchResults.length > 0 && !isSearching && (
+          <View style={styles.sortFilterBar}>
+            <SortPicker currentSort={sortMode} onSortChange={handleSortChange} />
+            {hasActiveFilters() && (
+              <TouchableOpacity
+                style={styles.activeFiltersIndicator}
+                onPress={() => setShowFilters(true)}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="funnel" size={14} color="#10B981" />
+                <Text style={styles.activeFiltersText}>
+                  {(filters.brands?.length || 0) +
+                    (filters.categoryIds?.length || 0) +
+                    (filters.deliveryParish ? 1 : 0) +
+                    (filters.inStock === false ? 1 : 0) +
+                    (filters.minPrice || filters.maxPrice ? 1 : 0)}{" "}
+                  active
+                </Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        )}
 
         {/* Search Results or Empty State */}
         {isSearching ? (
@@ -466,6 +501,28 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: "#EF4444",
     fontWeight: "500",
+  },
+  sortFilterBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    marginBottom: 16,
+  },
+  activeFiltersIndicator: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    backgroundColor: "#F0FDF4",
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#10B981",
+  },
+  activeFiltersText: {
+    fontSize: 13,
+    color: "#10B981",
+    fontWeight: "600",
   },
 });
 

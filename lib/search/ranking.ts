@@ -400,8 +400,24 @@ export function calculateRelevanceScore(
 
 /**
  * Sort mode for results
+ * 
+ * Available sort options:
+ * - relevance: Sort by search relevance score (default)
+ * - price_asc: Sort by price (low to high)
+ * - price_desc: Sort by price (high to low)
+ * - rating_desc: Sort by customer rating (high to low) - requires rating field
+ * - review_count_desc: Sort by review count (high to low) - requires review_count field
+ * - delivery_time_asc: Sort by delivery time (fastest first) - requires delivery_time field
+ * - distance_asc: Sort by distance from delivery location (nearest first) - requires location coordinates
  */
-export type SortMode = "relevance" | "price_asc" | "price_desc";
+export type SortMode = 
+  | "relevance" 
+  | "price_asc" 
+  | "price_desc"
+  | "rating_desc"
+  | "review_count_desc"
+  | "delivery_time_asc"
+  | "distance_asc";
 
 /**
  * Rank and sort search results
@@ -413,11 +429,23 @@ export type SortMode = "relevance" | "price_asc" | "price_desc";
  * @returns Ranked and sorted results
  */
 export function rankResults<T extends {
-  product: RankingProduct;
+  product: RankingProduct & {
+    rating?: number; // Optional: average customer rating (0-5)
+    review_count?: number; // Optional: number of reviews
+  };
   brand: string;
   category?: RankingCategory;
   inStock: boolean;
   priceJmdCents: number;
+  storeLocation?: {
+    delivery_time_minutes?: number; // Optional: estimated delivery time in minutes
+    latitude?: number; // Optional: store latitude
+    longitude?: number; // Optional: store longitude
+  };
+  deliveryAddress?: {
+    latitude?: number; // Optional: delivery address latitude
+    longitude?: number; // Optional: delivery address longitude
+  };
   relevanceScore?: number;
 }>(
   results: T[],
@@ -448,16 +476,33 @@ export function rankResults<T extends {
       userPrefs
     );
     
+    // Calculate distance if coordinates are available
+    let distanceKm: number | undefined;
+    if (
+      result.storeLocation?.latitude !== undefined &&
+      result.storeLocation?.longitude !== undefined &&
+      result.deliveryAddress?.latitude !== undefined &&
+      result.deliveryAddress?.longitude !== undefined
+    ) {
+      distanceKm = calculateDistance(
+        result.storeLocation.latitude,
+        result.storeLocation.longitude,
+        result.deliveryAddress.latitude,
+        result.deliveryAddress.longitude
+      );
+    }
+    
     return {
       ...result,
       relevanceScore,
       _matchInfo: matchInfo, // Internal use only
+      _distanceKm: distanceKm, // Internal use only
     };
   });
   
   // Sort results
   scoredResults.sort((a, b) => {
-    // Primary sort: relevance score (descending)
+    // Primary sort based on sort mode
     if (sortMode === "relevance") {
       const scoreDiff = (b.relevanceScore || 0) - (a.relevanceScore || 0);
       if (scoreDiff !== 0) {
@@ -485,17 +530,132 @@ export function rankResults<T extends {
       return 0;
     }
     
-    // Price sorting (only when explicitly requested)
+    // Price sorting
     if (sortMode === "price_asc") {
+      // In-stock items first, then sort by price
+      if (a.inStock && !b.inStock) return -1;
+      if (!a.inStock && b.inStock) return 1;
       return a.priceJmdCents - b.priceJmdCents;
     }
     if (sortMode === "price_desc") {
+      // In-stock items first, then sort by price
+      if (a.inStock && !b.inStock) return -1;
+      if (!a.inStock && b.inStock) return 1;
       return b.priceJmdCents - a.priceJmdCents;
+    }
+    
+    // Rating sorting (descending - highest rated first)
+    if (sortMode === "rating_desc") {
+      const aRating = a.product.rating ?? 0;
+      const bRating = b.product.rating ?? 0;
+      const ratingDiff = bRating - aRating;
+      if (ratingDiff !== 0) return ratingDiff;
+      
+      // Tie-breaker: review count (more reviews = more reliable rating)
+      const aReviews = a.product.review_count ?? 0;
+      const bReviews = b.product.review_count ?? 0;
+      const reviewDiff = bReviews - aReviews;
+      if (reviewDiff !== 0) return reviewDiff;
+      
+      // Final tie-breaker: in-stock items first
+      if (a.inStock && !b.inStock) return -1;
+      if (!a.inStock && b.inStock) return 1;
+      
+      return 0;
+    }
+    
+    // Review count sorting (descending - most reviewed first)
+    if (sortMode === "review_count_desc") {
+      const aReviews = a.product.review_count ?? 0;
+      const bReviews = b.product.review_count ?? 0;
+      const reviewDiff = bReviews - aReviews;
+      if (reviewDiff !== 0) return reviewDiff;
+      
+      // Tie-breaker: rating (higher rated first)
+      const aRating = a.product.rating ?? 0;
+      const bRating = b.product.rating ?? 0;
+      const ratingDiff = bRating - aRating;
+      if (ratingDiff !== 0) return ratingDiff;
+      
+      // Final tie-breaker: in-stock items first
+      if (a.inStock && !b.inStock) return -1;
+      if (!a.inStock && b.inStock) return 1;
+      
+      return 0;
+    }
+    
+    // Delivery time sorting (ascending - fastest delivery first)
+    if (sortMode === "delivery_time_asc") {
+      // Only sort in-stock items by delivery time (out of stock goes to end)
+      if (a.inStock && !b.inStock) return -1;
+      if (!a.inStock && b.inStock) return 1;
+      
+      const aDeliveryTime = a.storeLocation?.delivery_time_minutes ?? Number.MAX_SAFE_INTEGER;
+      const bDeliveryTime = b.storeLocation?.delivery_time_minutes ?? Number.MAX_SAFE_INTEGER;
+      const timeDiff = aDeliveryTime - bDeliveryTime;
+      if (timeDiff !== 0) return timeDiff;
+      
+      // Tie-breaker: price (lower price first)
+      return a.priceJmdCents - b.priceJmdCents;
+    }
+    
+    // Distance sorting (ascending - nearest first)
+    if (sortMode === "distance_asc") {
+      // Only sort in-stock items by distance (out of stock goes to end)
+      if (a.inStock && !b.inStock) return -1;
+      if (!a.inStock && b.inStock) return 1;
+      
+      const aDistance = a._distanceKm ?? Number.MAX_SAFE_INTEGER;
+      const bDistance = b._distanceKm ?? Number.MAX_SAFE_INTEGER;
+      const distanceDiff = aDistance - bDistance;
+      if (distanceDiff !== 0) return distanceDiff;
+      
+      // Tie-breaker: price (lower price first)
+      return a.priceJmdCents - b.priceJmdCents;
     }
     
     return 0;
   });
   
-  // Remove internal _matchInfo field before returning
-  return scoredResults.map(({ _matchInfo, ...result }) => result);
+  // Remove internal fields before returning
+  return scoredResults.map(({ _matchInfo, _distanceKm, ...result }) => result);
+}
+
+/**
+ * Calculate distance between two coordinates using Haversine formula
+ * 
+ * @param lat1 - Latitude of first point
+ * @param lon1 - Longitude of first point
+ * @param lat2 - Latitude of second point
+ * @param lon2 - Longitude of second point
+ * @returns Distance in kilometers
+ */
+function calculateDistance(
+  lat1: number,
+  lon1: number,
+  lat2: number,
+  lon2: number
+): number {
+  const R = 6371; // Earth's radius in kilometers
+  const dLat = toRadians(lat2 - lat1);
+  const dLon = toRadians(lon2 - lon1);
+  
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(toRadians(lat1)) *
+      Math.cos(toRadians(lat2)) *
+      Math.sin(dLon / 2) *
+      Math.sin(dLon / 2);
+  
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  const distance = R * c;
+  
+  return distance;
+}
+
+/**
+ * Convert degrees to radians
+ */
+function toRadians(degrees: number): number {
+  return degrees * (Math.PI / 180);
 }

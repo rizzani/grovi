@@ -44,6 +44,8 @@ export interface Product {
   primary_image_url?: string;
   category_leaf_id: string;
   category_path_ids: string[];
+  rating?: number; // Optional: average customer rating (0-5) - for future use
+  review_count?: number; // Optional: number of reviews - for future use
   createdAt?: string;
   updatedAt?: string;
 }
@@ -72,6 +74,9 @@ export interface StoreLocation {
   address_line2?: string;
   phone?: string;
   priority?: number;
+  delivery_time_minutes?: number; // Optional: estimated delivery time in minutes - for future use
+  latitude?: number; // Optional: store latitude - for future use
+  longitude?: number; // Optional: store longitude - for future use
   createdAt?: string;
   updatedAt?: string;
 }
