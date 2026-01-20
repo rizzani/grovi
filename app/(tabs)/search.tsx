@@ -206,10 +206,42 @@ export default function SearchScreen() {
           </View>
         ) : searchQuery && allSearchResults.length === 0 ? (
           <View style={styles.emptyContainer}>
+            <View style={styles.emptyIconContainer}>
+              <Ionicons 
+                name={hasActiveFilters() ? "funnel-outline" : "search-outline"} 
+                size={64} 
+                color="#D1D5DB" 
+              />
+            </View>
             <Text style={styles.emptyTitle}>No results found</Text>
             <Text style={styles.emptySubtitle}>
-              Try searching for something else
+              {hasActiveFilters() 
+                ? "No products match your current filters. Try adjusting your filters or search query."
+                : "We couldn't find any products matching your search."}
             </Text>
+            {hasActiveFilters() && (
+              <View style={styles.emptyActions}>
+                <TouchableOpacity
+                  style={styles.clearFiltersButton}
+                  onPress={() => {
+                    setFilters({});
+                    handleSearch(searchQuery, {}, sortMode);
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons name="close-circle" size={18} color="#FFFFFF" />
+                  <Text style={styles.clearFiltersButtonText}>Clear All Filters</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.adjustFiltersButton}
+                  onPress={() => setShowFilters(true)}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons name="options" size={18} color="#10B981" />
+                  <Text style={styles.adjustFiltersButtonText}>Adjust Filters</Text>
+                </TouchableOpacity>
+              </View>
+            )}
           </View>
         ) : !searchQuery.trim() && allSearchResults.length === 0 && recentSearches.length > 0 ? (
           <View style={styles.recentSearchesContainer}>
@@ -325,6 +357,10 @@ const styles = StyleSheet.create({
     paddingVertical: 60,
     paddingHorizontal: 24,
   },
+  emptyIconContainer: {
+    marginBottom: 16,
+    opacity: 0.5,
+  },
   emptyTitle: {
     fontSize: 24,
     fontWeight: "700",
@@ -335,6 +371,49 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: "#6B7280",
     textAlign: "center",
+    lineHeight: 24,
+    marginBottom: 24,
+  },
+  emptyActions: {
+    width: "100%",
+    gap: 12,
+  },
+  clearFiltersButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    backgroundColor: "#10B981",
+    paddingVertical: 14,
+    paddingHorizontal: 24,
+    borderRadius: 12,
+    shadowColor: "#10B981",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  clearFiltersButtonText: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#FFFFFF",
+  },
+  adjustFiltersButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    backgroundColor: "#F0FDF4",
+    paddingVertical: 14,
+    paddingHorizontal: 24,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#10B981",
+  },
+  adjustFiltersButtonText: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#10B981",
   },
   recentSearchesContainer: {
     paddingTop: 8,
