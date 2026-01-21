@@ -47,6 +47,10 @@ export interface Product {
   sku: string;
   brand?: string; // Brand is a string field, not a reference
   description?: string;
+  unit_size?: string; // Optional: e.g., "500g", "1L", "296 ml"
+  package_quantity?: number; // Optional: e.g., 16 (units per package)
+  net_weight?: string; // Optional: e.g., "500g"
+  country_of_origin?: string; // Optional: country where product is from (future)
   primary_image_url?: string; // Primary image URL
   images?: ProductImageObject[] | string; // Array of image objects or JSON string
   category_leaf_id: string;

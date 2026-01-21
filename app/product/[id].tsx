@@ -27,6 +27,10 @@ interface Product {
   sku: string;
   brand?: string;
   description?: string;
+  unit_size?: string; // e.g., "500g", "1L", "296 ml"
+  package_quantity?: number; // e.g., 16 (units per package)
+  net_weight?: string; // e.g., "500g"
+  country_of_origin?: string; // Future: country where product is from
   primary_image_url?: string;
   images?: ProductImageObject[] | string; // Array of image objects or JSON string
   category_leaf_id: string;
@@ -136,6 +140,10 @@ export default function ProductDetailScreen() {
         sku: productDoc.sku,
         brand: productDoc.brand,
         description: productDoc.description,
+        unit_size: productDoc.unit_size,
+        package_quantity: productDoc.package_quantity,
+        net_weight: productDoc.net_weight,
+        country_of_origin: productDoc.country_of_origin,
         primary_image_url: productDoc.primary_image_url,
         images: productDoc.images,
         category_leaf_id: productDoc.category_leaf_id,
@@ -360,6 +368,40 @@ export default function ProductDetailScreen() {
             <View style={styles.categoryBadge}>
               <Ionicons name="pricetag" size={14} color="#6B7280" />
               <Text style={styles.categoryText}>{category.name}</Text>
+            </View>
+          )}
+
+          {/* Product Details: Package Size, Quantity, Weight, Origin */}
+          {(product.unit_size || product.package_quantity || product.net_weight || product.country_of_origin) && (
+            <View style={styles.productMetadata}>
+              {product.unit_size && (
+                <View style={styles.metadataItem}>
+                  <Ionicons name="cube-outline" size={16} color="#6B7280" />
+                  <Text style={styles.metadataLabel}>Size:</Text>
+                  <Text style={styles.metadataValue}>{product.unit_size}</Text>
+                </View>
+              )}
+              {product.package_quantity && (
+                <View style={styles.metadataItem}>
+                  <Ionicons name="albums-outline" size={16} color="#6B7280" />
+                  <Text style={styles.metadataLabel}>Pack:</Text>
+                  <Text style={styles.metadataValue}>{product.package_quantity} units</Text>
+                </View>
+              )}
+              {product.net_weight && (
+                <View style={styles.metadataItem}>
+                  <Ionicons name="scale-outline" size={16} color="#6B7280" />
+                  <Text style={styles.metadataLabel}>Weight:</Text>
+                  <Text style={styles.metadataValue}>{product.net_weight}</Text>
+                </View>
+              )}
+              {product.country_of_origin && (
+                <View style={styles.metadataItem}>
+                  <Ionicons name="globe-outline" size={16} color="#6B7280" />
+                  <Text style={styles.metadataLabel}>Origin:</Text>
+                  <Text style={styles.metadataValue}>{product.country_of_origin}</Text>
+                </View>
+              )}
             </View>
           )}
 
@@ -589,6 +631,24 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "500",
     color: "#6B7280",
+  },
+  productMetadata: {
+    gap: 8,
+    marginBottom: 16,
+  },
+  metadataItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  metadataLabel: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#6B7280",
+  },
+  metadataValue: {
+    fontSize: 14,
+    color: "#111827",
   },
   priceSection: {
     flexDirection: "row",

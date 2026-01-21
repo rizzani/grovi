@@ -1,0 +1,104 @@
+{
+  "timestamp": "2026-01-21T17:25:14.571Z",
+  "databaseId": "grovi_staging",
+  "collections": [
+    {
+      "id": "categories",
+      "name": "Categories",
+      "documentCount": 22,
+      "attributeCount": 6,
+      "indexCount": 3
+    },
+    {
+      "id": "products",
+      "name": "Products",
+      "documentCount": 1050,
+      "attributeCount": 15,
+      "indexCount": 9
+    },
+    {
+      "id": "image_sources",
+      "name": "Image Sources",
+      "documentCount": 4909,
+      "attributeCount": 4,
+      "indexCount": 2
+    },
+    {
+      "id": "sku_registry",
+      "name": "SKU Registry",
+      "documentCount": 1066,
+      "attributeCount": 6,
+      "indexCount": 2
+    },
+    {
+      "id": "profiles",
+      "name": "Profiles",
+      "documentCount": 0,
+      "attributeCount": 6,
+      "indexCount": 1
+    },
+    {
+      "id": "audit_logs",
+      "name": "Audit Logs",
+      "documentCount": 0,
+      "attributeCount": 4,
+      "indexCount": 3
+    },
+    {
+      "id": "addresses",
+      "name": "Addresses",
+      "documentCount": 0,
+      "attributeCount": 9,
+      "indexCount": 1
+    },
+    {
+      "id": "user_preferences",
+      "name": "User Preferences",
+      "documentCount": 0,
+      "attributeCount": 3,
+      "indexCount": 1
+    },
+    {
+      "id": "notification_preferences",
+      "name": "Notification Preferences",
+      "documentCount": 0,
+      "attributeCount": 7,
+      "indexCount": 1
+    },
+    {
+      "id": "payment_methods",
+      "name": "Payment Methods",
+      "documentCount": 0,
+      "attributeCount": 6,
+      "indexCount": 1
+    },
+    {
+      "id": "store_brand",
+      "name": "Store Brands",
+      "documentCount": 0,
+      "attributeCount": 7,
+      "indexCount": 1
+    },
+    {
+      "id": "store_location",
+      "name": "Store Locations",
+      "documentCount": 0,
+      "attributeCount": 10,
+      "indexCount": 1
+    },
+    {
+      "id": "store_location_product",
+      "name": "Store Location Product",
+      "documentCount": 1050,
+      "attributeCount": 14,
+      "indexCount": 7
+    },
+    {
+      "id": "search_analytics",
+      "name": "Search Analytics",
+      "documentCount": 0,
+      "attributeCount": 5,
+      "indexCount": 3
+    }
+  ]
+}
