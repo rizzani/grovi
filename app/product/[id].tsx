@@ -7,6 +7,7 @@ import {
   ActivityIndicator,
   TouchableOpacity,
   Linking,
+  Alert,
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -15,6 +16,7 @@ import Constants from "expo-constants";
 import ProductImageGallery from "../../components/ProductImageGallery";
 import { databases, databaseId } from "../../lib/appwrite-client";
 import { Query } from "appwrite";
+import { useCart } from "../../contexts/CartContext";
 
 interface ProductImageObject {
   fileId: string;
@@ -100,6 +102,7 @@ function getOptimizedImageUrl(imageUrl: string | undefined): string | undefined 
 export default function ProductDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
+  const { addToCart, isProductInCart, getItemQuantity } = useCart();
   
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -111,6 +114,7 @@ export default function ProductDetailScreen() {
     }>
   >([]);
   const [category, setCategory] = useState<Category | null>(null);
+  const [addingToCart, setAddingToCart] = useState<string | null>(null);
 
   useEffect(() => {
     loadProductDetails();
@@ -173,6 +177,21 @@ export default function ProductDetailScreen() {
               doc.store_location_id
             );
             
+            // Fetch store brand to get logo_url
+            let logoUrl: string | undefined;
+            if (storeLocationDoc.brand_id) {
+              try {
+                const brandDoc = await databases.getDocument(
+                  databaseId,
+                  "store_brand",
+                  storeLocationDoc.brand_id
+                );
+                logoUrl = brandDoc.logo_url;
+              } catch (brandErr) {
+                console.warn("Error fetching store brand:", brandErr);
+              }
+            }
+            
             return {
               storeProduct: {
                 $id: doc.$id,
@@ -189,6 +208,7 @@ export default function ProductDetailScreen() {
                 parish: storeLocationDoc.parish,
                 address_line1: storeLocationDoc.address_line1,
                 phone: storeLocationDoc.phone,
+                logo_url: logoUrl,
               },
             };
           } catch (err) {
@@ -234,6 +254,46 @@ export default function ProductDetailScreen() {
       }
     } catch (err) {
       console.error("Error opening external link:", err);
+    }
+  };
+
+  const handleAddToCart = async (
+    storeProduct: StoreLocationProduct,
+    storeLocation: StoreLocation
+  ) => {
+    if (!product || !storeProduct.in_stock) {
+      return;
+    }
+
+    try {
+      setAddingToCart(storeProduct.$id);
+      await addToCart(
+        product.$id,
+        storeProduct.store_location_id,
+        product.sku,
+        product.title,
+        storeProduct.price_jmd_cents,
+        storeLocation.display_name || storeLocation.name,
+        product.brand,
+        product.primary_image_url,
+        1,
+        storeLocation.logo_url
+      );
+      
+      Alert.alert(
+        "Added to Cart",
+        `${product.title} from ${storeLocation.display_name || storeLocation.name} has been added to your cart.`,
+        [{ text: "OK" }]
+      );
+    } catch (err) {
+      console.error("Error adding to cart:", err);
+      Alert.alert(
+        "Error",
+        "Failed to add item to cart. Please try again.",
+        [{ text: "OK" }]
+      );
+    } finally {
+      setAddingToCart(null);
     }
   };
 
@@ -506,16 +566,43 @@ export default function ProductDetailScreen() {
                       </View>
                     )}
 
-                    {storeProduct.external_url && (
-                      <TouchableOpacity
-                        style={styles.visitStoreButton}
-                        onPress={() => handleExternalLink(storeProduct.external_url!)}
-                        activeOpacity={0.7}
-                      >
-                        <Text style={styles.visitStoreButtonText}>Visit Store</Text>
-                        <Ionicons name="open-outline" size={14} color="#10B981" />
-                      </TouchableOpacity>
-                    )}
+                    <View style={styles.storeFooterActions}>
+                      {storeProduct.in_stock && (
+                        <TouchableOpacity
+                          style={[
+                            styles.addToCartButton,
+                            addingToCart === storeProduct.$id && styles.addToCartButtonDisabled,
+                          ]}
+                          onPress={() => handleAddToCart(storeProduct, storeLocation)}
+                          activeOpacity={0.7}
+                          disabled={addingToCart === storeProduct.$id}
+                        >
+                          {addingToCart === storeProduct.$id ? (
+                            <ActivityIndicator size="small" color="#FFFFFF" />
+                          ) : (
+                            <>
+                              <Ionicons name="cart" size={16} color="#FFFFFF" />
+                              <Text style={styles.addToCartButtonText}>
+                                {isProductInCart(product.$id, storeProduct.store_location_id)
+                                  ? `In Cart (${getItemQuantity(product.$id, storeProduct.store_location_id)})`
+                                  : "Add to Cart"}
+                              </Text>
+                            </>
+                          )}
+                        </TouchableOpacity>
+                      )}
+
+                      {storeProduct.external_url && (
+                        <TouchableOpacity
+                          style={styles.visitStoreButton}
+                          onPress={() => handleExternalLink(storeProduct.external_url!)}
+                          activeOpacity={0.7}
+                        >
+                          <Text style={styles.visitStoreButtonText}>Visit Store</Text>
+                          <Ionicons name="open-outline" size={14} color="#10B981" />
+                        </TouchableOpacity>
+                      )}
+                    </View>
                   </View>
                 </View>
               ))}
@@ -772,9 +859,32 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   storeFooter: {
+    flexDirection: "column",
+    gap: 12,
+  },
+  storeFooterActions: {
     flexDirection: "row",
-    justifyContent: "space-between",
+    gap: 8,
     alignItems: "center",
+  },
+  addToCartButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    backgroundColor: "#10B981",
+    borderRadius: 8,
+    flex: 1,
+    justifyContent: "center",
+  },
+  addToCartButtonDisabled: {
+    opacity: 0.6,
+  },
+  addToCartButtonText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#FFFFFF",
   },
   inStockBadge: {
     flexDirection: "row",

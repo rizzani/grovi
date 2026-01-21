@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from "react";
-import { Text, View, StyleSheet, ScrollView, FlatList, ActivityIndicator, TouchableOpacity, Animated } from "react-native";
+import { Text, View, StyleSheet, ScrollView, FlatList, ActivityIndicator, TouchableOpacity, Animated, Alert } from "react-native";
 import { Image } from "expo-image";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
@@ -10,6 +10,7 @@ import ProductFilters from "../../components/ProductFilters";
 import SortPicker from "../../components/SortPicker";
 import { useSearch } from "../../contexts/SearchContext";
 import { useUser } from "../../contexts/UserContext";
+import { useCart } from "../../contexts/CartContext";
 import { getSearchSuggestions, searchProductsPaginated, ProductFilters as ProductFiltersType, SearchResult } from "../../lib/search-service";
 import { SortMode } from "../../lib/search/ranking";
 
@@ -638,10 +639,8 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
   productCard: {
-    flexDirection: "row",
     backgroundColor: "#FFFFFF",
     borderRadius: 12,
-    padding: 12,
     marginBottom: 12,
     borderWidth: 1,
     borderColor: "#E5E7EB",
@@ -653,6 +652,9 @@ const styles = StyleSheet.create({
   },
   productCardOutOfStock: {
     opacity: 0.6,
+  },
+  productCardContent: {
+    flexDirection: "row",
   },
   productImageContainer: {
     width: 80,
@@ -718,6 +720,13 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
+    gap: 8,
+  },
+  productFooterLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    flex: 1,
   },
   productPrice: {
     fontSize: 16,
@@ -735,6 +744,28 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: "#6B7280",
     fontWeight: "500",
+  },
+  addToCartButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    backgroundColor: "#10B981",
+    borderRadius: 6,
+    minWidth: 60,
+    justifyContent: "center",
+  },
+  addToCartButtonDisabled: {
+    opacity: 0.6,
+  },
+  addToCartButtonInCart: {
+    backgroundColor: "#059669",
+  },
+  addToCartButtonText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#FFFFFF",
   },
   loadingMoreContainer: {
     flexDirection: "row",
@@ -823,7 +854,9 @@ function getTransformedImageUrl(imageUrl: string | undefined): string | undefine
 
 function ProductCard({ result }: ProductCardProps) {
   const router = useRouter();
+  const { addToCart, isProductInCart, getItemQuantity } = useCart();
   const [imageLoading, setImageLoading] = useState(true);
+  const [addingToCart, setAddingToCart] = useState(false);
   const pulseAnim = useRef(new Animated.Value(1)).current;
   
   // Pulse animation for loading state
@@ -852,17 +885,59 @@ function ProductCard({ result }: ProductCardProps) {
     router.push(`/product/${result.product.$id}`);
   };
 
+  const handleAddToCart = async (e: any) => {
+    e.stopPropagation();
+    
+    if (!result.inStock) {
+      return;
+    }
+
+    try {
+      setAddingToCart(true);
+      await addToCart(
+        result.product.$id,
+        result.storeLocation.$id,
+        result.sku,
+        result.product.title,
+        result.priceJmdCents,
+        result.storeLocation.display_name || result.storeLocation.name,
+        result.brand,
+        result.product.primary_image_url,
+        1,
+        result.storeLocation.logo_url
+      );
+      
+      Alert.alert(
+        "Added to Cart",
+        `${result.product.title} has been added to your cart.`,
+        [{ text: "OK" }]
+      );
+    } catch (err) {
+      console.error("Error adding to cart:", err);
+      Alert.alert(
+        "Error",
+        "Failed to add item to cart. Please try again.",
+        [{ text: "OK" }]
+      );
+    } finally {
+      setAddingToCart(false);
+    }
+  };
+
   const priceFormatted = `$${(result.priceJmdCents / 100).toFixed(2)}`;
   const originalUrl = result.product.primary_image_url;
   const imageUri = getTransformedImageUrl(originalUrl);
+  const inCart = isProductInCart(result.product.$id, result.storeLocation.$id);
+  const cartQuantity = getItemQuantity(result.product.$id, result.storeLocation.$id);
 
   return (
-    <TouchableOpacity
-      style={[styles.productCard, !result.inStock && styles.productCardOutOfStock]}
-      onPress={handlePress}
-      activeOpacity={0.7}
-      disabled={!result.inStock}
-    >
+    <View style={[styles.productCard, !result.inStock && styles.productCardOutOfStock]}>
+      <TouchableOpacity
+        style={styles.productCardContent}
+        onPress={handlePress}
+        activeOpacity={0.7}
+        disabled={!result.inStock}
+      >
       {/* Product Image - Left Side */}
       <View style={styles.productImageContainer}>
         {imageUri ? (
@@ -925,18 +1000,48 @@ function ProductCard({ result }: ProductCardProps) {
           </View>
         </View>
 
-        {/* Footer Section - Price and Category */}
+        {/* Footer Section - Price, Category, and Add to Cart */}
         <View style={styles.productFooter}>
-          <Text style={styles.productPrice}>{priceFormatted}</Text>
-          {result.category && (
-            <View style={styles.categoryBadge}>
-              <Text style={styles.categoryBadgeText} numberOfLines={1}>
-                {result.category.name}
-              </Text>
-            </View>
+          <View style={styles.productFooterLeft}>
+            <Text style={styles.productPrice}>{priceFormatted}</Text>
+            {result.category && (
+              <View style={styles.categoryBadge}>
+                <Text style={styles.categoryBadgeText} numberOfLines={1}>
+                  {result.category.name}
+                </Text>
+              </View>
+            )}
+          </View>
+          {result.inStock && (
+            <TouchableOpacity
+              style={[
+                styles.addToCartButton,
+                addingToCart && styles.addToCartButtonDisabled,
+                inCart && styles.addToCartButtonInCart,
+              ]}
+              onPress={handleAddToCart}
+              activeOpacity={0.7}
+              disabled={addingToCart}
+            >
+              {addingToCart ? (
+                <ActivityIndicator size="small" color="#FFFFFF" />
+              ) : (
+                <>
+                  <Ionicons 
+                    name={inCart ? "checkmark-circle" : "cart"} 
+                    size={14} 
+                    color="#FFFFFF" 
+                  />
+                  <Text style={styles.addToCartButtonText}>
+                    {inCart ? `${cartQuantity}` : "Add"}
+                  </Text>
+                </>
+              )}
+            </TouchableOpacity>
           )}
         </View>
       </View>
-    </TouchableOpacity>
+      </TouchableOpacity>
+    </View>
   );
 }

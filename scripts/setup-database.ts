@@ -1545,9 +1545,178 @@ async function setupDatabase() {
       console.error(`  ✗ Failed to update permissions: ${error.message}`);
     }
 
+    // Step 37: Create carts collection
+    const cartsCollectionId = "carts";
+    let cartsCollection;
+    try {
+      cartsCollection = await appwriteRequest(
+        "GET",
+        `/databases/${databaseId}/collections/${cartsCollectionId}`
+      );
+      console.log(`✓ Collection '${cartsCollectionId}' already exists`);
+    } catch (error: any) {
+      if (error.code === 404) {
+        try {
+          cartsCollection = await appwriteRequest(
+            "POST",
+            `/databases/${databaseId}/collections`,
+            {
+              collectionId: cartsCollectionId,
+              name: "Shopping Carts",
+              permissions: [
+                Permission.read(Role.users()),
+                Permission.write(Role.users()),
+              ], // Collection-level allows querying; document-level restricts access
+            }
+          );
+          console.log(`✓ Created collection '${cartsCollectionId}'`);
+        } catch (createError: any) {
+          console.error(`✗ Failed to create collection: ${createError.message}`);
+          throw createError;
+        }
+      } else {
+        throw error;
+      }
+    }
+
+    // Step 38: Create carts attributes
+    const cartsStringAttributes = [
+      { key: "userId", size: 36, required: true },
+      { key: "updatedAt", size: 50, required: true },
+    ];
+
+    for (const attr of cartsStringAttributes) {
+      try {
+        await appwriteRequest(
+          "POST",
+          `/databases/${databaseId}/collections/${cartsCollectionId}/attributes/string`,
+          {
+            key: attr.key,
+            size: attr.size,
+            required: attr.required,
+          }
+        );
+        console.log(`  ✓ Created attribute '${attr.key}' (string)`);
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+      } catch (error: any) {
+        if (error.code === 409) {
+          console.log(`  - Attribute '${attr.key}' already exists`);
+        } else {
+          console.error(`  ✗ Failed to create attribute '${attr.key}': ${error.message}`);
+        }
+      }
+    }
+
+    // Cart items array (stored as JSON string in Appwrite)
+    try {
+      await appwriteRequest(
+        "POST",
+        `/databases/${databaseId}/collections/${cartsCollectionId}/attributes/string`,
+        {
+          key: "items",
+          size: 10000, // Large size for JSON array
+          required: false, // Changed to false to allow empty carts
+        }
+      );
+      console.log(`  ✓ Created attribute 'items' (string)`);
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+    } catch (error: any) {
+      if (error.code === 409) {
+        console.log(`  - Attribute 'items' already exists`);
+      } else {
+        console.error(`  ✗ Failed to create attribute 'items': ${error.message}`);
+      }
+    }
+
+    const cartsIntegerAttributes = [
+      { key: "totalItems", required: true },
+      { key: "totalPriceJmdCents", required: true },
+    ];
+
+    for (const attr of cartsIntegerAttributes) {
+      try {
+        await appwriteRequest(
+          "POST",
+          `/databases/${databaseId}/collections/${cartsCollectionId}/attributes/integer`,
+          {
+            key: attr.key,
+            required: attr.required,
+          }
+        );
+        console.log(`  ✓ Created attribute '${attr.key}' (integer)`);
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+      } catch (error: any) {
+        if (error.code === 409) {
+          console.log(`  - Attribute '${attr.key}' already exists`);
+        } else {
+          console.error(`  ✗ Failed to create attribute '${attr.key}': ${error.message}`);
+        }
+      }
+    }
+
+    // Store IDs array (stored as JSON string in Appwrite)
+    try {
+      await appwriteRequest(
+        "POST",
+        `/databases/${databaseId}/collections/${cartsCollectionId}/attributes/string`,
+        {
+          key: "storeIds",
+          size: 1000, // Size for JSON array of store IDs
+          required: false, // Changed to false to allow empty carts
+        }
+      );
+      console.log(`  ✓ Created attribute 'storeIds' (string)`);
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+    } catch (error: any) {
+      if (error.code === 409) {
+        console.log(`  - Attribute 'storeIds' already exists`);
+      } else {
+        console.error(`  ✗ Failed to create attribute 'storeIds': ${error.message}`);
+      }
+    }
+
+    // Step 39: Create carts indexes
+    try {
+      await appwriteRequest(
+        "POST",
+        `/databases/${databaseId}/collections/${cartsCollectionId}/indexes`,
+        {
+          key: "idx_userId",
+          type: "key",
+          attributes: ["userId"],
+          orders: ["ASC"],
+        }
+      );
+      console.log(`  ✓ Created index 'idx_userId' on carts`);
+    } catch (error: any) {
+      if (error.code === 409) {
+        console.log(`  - Index 'idx_userId' already exists`);
+      } else {
+        console.error(`  ✗ Failed to create index: ${error.message}`);
+      }
+    }
+
+    // Step 40: Set carts permissions
+    try {
+      await appwriteRequest(
+        "PUT",
+        `/databases/${databaseId}/collections/${cartsCollectionId}`,
+        {
+          name: "Shopping Carts",
+          permissions: [
+            Permission.read(Role.users()),
+            Permission.write(Role.users()),
+          ], // Collection-level allows querying; document-level restricts access
+        }
+      );
+      console.log(`  ✓ Updated permissions for '${cartsCollectionId}'`);
+    } catch (error: any) {
+      console.error(`  ✗ Failed to update permissions: ${error.message}`);
+    }
+
     console.log("\n✅ Database setup completed successfully!");
     console.log(`\nDatabase ID: ${databaseId}`);
-    console.log(`Collections: ${profilesCollectionId}, ${addressesCollectionId}, ${auditLogsCollectionId}, ${userPreferencesCollectionId}, ${notificationPreferencesCollectionId}, ${storeLocationProductCollectionId}, ${searchAnalyticsCollectionId}`);
+    console.log(`Collections: ${profilesCollectionId}, ${addressesCollectionId}, ${auditLogsCollectionId}, ${userPreferencesCollectionId}, ${notificationPreferencesCollectionId}, ${storeLocationProductCollectionId}, ${searchAnalyticsCollectionId}, ${cartsCollectionId}`);
     console.log("\nNote: Make sure to set APPWRITE_DATABASE_ID in your app configuration.");
   } catch (error: any) {
     console.error("\n❌ Database setup failed:", error.message);

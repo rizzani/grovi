@@ -33,6 +33,7 @@ const STORE_LOCATION_PRODUCT_COLLECTION_ID = "store_location_product";
 const PRODUCTS_COLLECTION_ID = "products";
 const CATEGORIES_COLLECTION_ID = "categories";
 const STORE_LOCATIONS_COLLECTION_ID = "store_location"; // Note: singular, not plural
+const STORE_BRAND_COLLECTION_ID = "store_brand";
 
 // Type definitions (matching actual database schema)
 // Image object structure from Appwrite
@@ -88,6 +89,7 @@ export interface StoreLocation {
   delivery_time_minutes?: number; // Optional: estimated delivery time in minutes - for future use
   latitude?: number; // Optional: store latitude - for future use
   longitude?: number; // Optional: store longitude - for future use
+  logo_url?: string; // Optional: store logo image URL
   createdAt?: string;
   updatedAt?: string;
 }
@@ -677,7 +679,40 @@ async function getCategoriesByIds(categoryIds: string[]): Promise<Map<string, Ca
 }
 
 /**
+ * Get store brands by IDs
+ */
+async function getStoreBrandsByIds(brandIds: string[]): Promise<Map<string, { logo_url?: string }>> {
+  const brandMap = new Map<string, { logo_url?: string }>();
+
+  if (brandIds.length === 0) return brandMap;
+
+  try {
+    const batchSize = 100;
+    for (let i = 0; i < brandIds.length; i += batchSize) {
+      const batch = brandIds.slice(i, i + batchSize);
+      const response = await databases.listDocuments(
+        databaseId,
+        STORE_BRAND_COLLECTION_ID,
+        [
+          Query.equal("$id", batch),
+          Query.limit(batchSize),
+        ]
+      );
+
+      response.documents.forEach((doc: any) => {
+        brandMap.set(doc.$id, { logo_url: doc.logo_url });
+      });
+    }
+  } catch (error: any) {
+    console.error("Error fetching store brands:", error);
+  }
+
+  return brandMap;
+}
+
+/**
  * Fetch store location details by IDs
+ * Also fetches store brand logos and includes them in the StoreLocation
  */
 async function getStoreLocationsByIds(storeLocationIds: string[]): Promise<Map<string, StoreLocation>> {
   const storeMap = new Map<string, StoreLocation>();
@@ -686,6 +721,9 @@ async function getStoreLocationsByIds(storeLocationIds: string[]): Promise<Map<s
 
   try {
     const batchSize = 100;
+    const brandIds = new Set<string>();
+    
+    // First, fetch store locations and collect brand IDs
     for (let i = 0; i < storeLocationIds.length; i += batchSize) {
       const batch = storeLocationIds.slice(i, i + batchSize);
       const response = await databases.listDocuments(
@@ -698,9 +736,25 @@ async function getStoreLocationsByIds(storeLocationIds: string[]): Promise<Map<s
       );
 
       response.documents.forEach((doc: any) => {
+        if (doc.brand_id) {
+          brandIds.add(doc.brand_id);
+        }
         storeMap.set(doc.$id, doc as StoreLocation);
       });
     }
+
+    // Fetch store brands to get logo URLs
+    const brandsMap = await getStoreBrandsByIds(Array.from(brandIds));
+
+    // Add logo_url from brand to each store location
+    storeMap.forEach((storeLocation, storeId) => {
+      if (storeLocation.brand_id) {
+        const brand = brandsMap.get(storeLocation.brand_id);
+        if (brand?.logo_url) {
+          storeLocation.logo_url = brand.logo_url;
+        }
+      }
+    });
   } catch (error: any) {
     console.error("Error fetching store locations:", error);
   }
