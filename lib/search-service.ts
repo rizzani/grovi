@@ -35,13 +35,20 @@ const CATEGORIES_COLLECTION_ID = "categories";
 const STORE_LOCATIONS_COLLECTION_ID = "store_location"; // Note: singular, not plural
 
 // Type definitions (matching actual database schema)
+// Image object structure from Appwrite
+export interface ProductImageObject {
+  fileId: string;
+  url: string;
+}
+
 export interface Product {
   $id: string;
   title: string; // Products use 'title' not 'name'
   sku: string;
   brand?: string; // Brand is a string field, not a reference
   description?: string;
-  primary_image_url?: string;
+  primary_image_url?: string; // Primary image URL
+  images?: ProductImageObject[] | string; // Array of image objects or JSON string
   category_leaf_id: string;
   category_path_ids: string[];
   rating?: number; // Optional: average customer rating (0-5) - for future use
