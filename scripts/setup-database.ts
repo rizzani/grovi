@@ -1283,9 +1283,31 @@ async function setupDatabase() {
           console.log(`  (Note: Full-text index may already exist with a different name)`);
         }
       }
+
+      // Add country_of_origin attribute to products collection (STORY-CUS-007-B)
+      try {
+        await appwriteRequest(
+          "POST",
+          `/databases/${databaseId}/collections/${productsCollectionId}/attributes/string`,
+          {
+            key: "country_of_origin",
+            size: 100,
+            required: false,
+          }
+        );
+        console.log(`  ✓ Created attribute 'country_of_origin' on ${productsCollectionId}`);
+        // Wait for attribute to be ready
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+      } catch (error: any) {
+        if (error.code === 409) {
+          console.log(`  - Attribute 'country_of_origin' already exists on ${productsCollectionId}`);
+        } else {
+          console.warn(`  ⚠️  Could not create attribute 'country_of_origin': ${error.message}`);
+        }
+      }
     } catch (error: any) {
       if (error.code === 404) {
-        console.log(`  - Collection '${productsCollectionId}' does not exist (skipping indexes)`);
+        console.log(`  - Collection '${productsCollectionId}' does not exist (skipping indexes and attributes)`);
       } else {
         console.warn(`  ⚠️  Could not check/create indexes for '${productsCollectionId}': ${error.message}`);
       }
