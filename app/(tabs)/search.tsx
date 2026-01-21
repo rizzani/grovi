@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from "react";
-import { Text, View, StyleSheet, ScrollView, FlatList, ActivityIndicator, TouchableOpacity, Image } from "react-native";
+import { Text, View, StyleSheet, ScrollView, FlatList, ActivityIndicator, TouchableOpacity, Animated } from "react-native";
+import { Image } from "expo-image";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -671,6 +672,18 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
+  imagePlaceholderLoading: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    borderRadius: 8,
+    backgroundColor: "#F9FAFB",
+    justifyContent: "center",
+    alignItems: "center",
+    zIndex: 1,
+  },
   productInfo: {
     flex: 1,
     justifyContent: "space-between",
@@ -774,96 +787,74 @@ function getTransformedImageUrl(imageUrl: string | undefined): string | undefine
   
   if (!isAppwriteStorageUrl) {
     // Not an Appwrite URL, return as-is (might be external URL or placeholder)
-    if (__DEV__) {
-      console.log("Not an Appwrite URL, skipping transformation:", imageUrl);
-    }
     return imageUrl;
   }
 
-  // IMPORTANT: Appwrite image transformations only work with /preview endpoint
-  // Replace /view with /preview if present, or ensure /preview is used
-  let transformedUrl = imageUrl;
+  // TEMPORARY FIX: Using /view endpoint without transformations to avoid 402 billing errors
+  // Image transformations (/preview endpoint) are hitting Appwrite billing limits
+  // TODO: Upgrade Appwrite plan to enable image transformations again
   
-  // Check if URL already has /preview or /view
-  if (transformedUrl.includes("/preview")) {
-    // Already using preview endpoint, no change needed
-  } else if (transformedUrl.includes("/view")) {
-    // Replace /view with /preview (transformations require preview endpoint)
-    transformedUrl = transformedUrl.replace("/view", "/preview");
-  } else {
-    // URL might be like: /v1/storage/buckets/[id]/files/[id] or /v1/storage/buckets/[id]/files/[id]?
-    // Need to add /preview before any query params
-    const queryIndex = transformedUrl.indexOf("?");
-    const hashIndex = transformedUrl.indexOf("#");
-    const insertIndex = queryIndex !== -1 ? queryIndex : (hashIndex !== -1 ? hashIndex : transformedUrl.length);
-    
-    // Insert /preview before query params/hash, or at the end
-    transformedUrl = transformedUrl.substring(0, insertIndex) + "/preview" + transformedUrl.substring(insertIndex);
+  // Ensure we're using /view endpoint
+  let viewUrl = imageUrl;
+  
+  if (viewUrl.includes("/preview")) {
+    // Replace /preview with /view to avoid transformation limits
+    viewUrl = viewUrl.replace("/preview", "/view");
+  } else if (!viewUrl.includes("/view")) {
+    // Add /view endpoint if not present
+    const queryIndex = viewUrl.indexOf("?");
+    const hashIndex = viewUrl.indexOf("#");
+    const insertIndex = queryIndex !== -1 ? queryIndex : (hashIndex !== -1 ? hashIndex : viewUrl.length);
+    viewUrl = viewUrl.substring(0, insertIndex) + "/view" + viewUrl.substring(insertIndex);
   }
 
-  // Get project ID for Appwrite URLs (required for preview)
+  // Get project ID for Appwrite URLs (required)
   const projectId = Constants.expoConfig?.extra?.EXPO_PUBLIC_APPWRITE_PROJECT_ID || 
     process.env.EXPO_PUBLIC_APPWRITE_PROJECT_ID || "";
 
-  // For list view cards (180px height), optimize images:
-  // - Width: 360px (2x for retina displays, prevents upscaling blur)
-  // - Height: 360px for square aspect ratio (good for product thumbnails)
-  // - Quality: 85% for good balance of quality and file size
-  // - Gravity: center to focus on center of image when cropping
-  const transformations = new URLSearchParams();
-  
-  // Add project parameter if available (required for Appwrite preview)
+  // Only add project parameter (no transformations to avoid 402 errors)
   if (projectId) {
-    transformations.set("project", projectId);
+    const separator = viewUrl.includes("?") ? "&" : "?";
+    return `${viewUrl}${separator}project=${projectId}`;
   }
-  
-  transformations.set("width", "360");
-  transformations.set("height", "360");
-  transformations.set("quality", "85");
-  transformations.set("gravity", "center");
 
-  // Handle URLs that might already have query params
-  // Appwrite URLs can be absolute (https://...) or relative (/v1/storage/...)
-  const isAbsoluteUrl = transformedUrl.startsWith("http") || transformedUrl.startsWith("//");
-  
-  if (isAbsoluteUrl) {
-    // Parse absolute URL
-    try {
-      const url = new URL(transformedUrl);
-      // Merge existing params with transformations (transformations override)
-      transformations.forEach((value, key) => {
-        url.searchParams.set(key, value);
-      });
-      return url.toString();
-    } catch {
-      // If URL parsing fails, append params manually
-      const separator = transformedUrl.includes("?") ? "&" : "?";
-      return `${transformedUrl}${separator}${transformations.toString()}`;
-    }
-  } else {
-    // Relative URL - append params
-    const separator = transformedUrl.includes("?") ? "&" : "?";
-    return `${transformedUrl}${separator}${transformations.toString()}`;
-  }
+  return viewUrl;
 }
 
 function ProductCard({ result }: ProductCardProps) {
   const router = useRouter();
+  const [imageLoading, setImageLoading] = useState(true);
+  const pulseAnim = useRef(new Animated.Value(1)).current;
+  
+  // Pulse animation for loading state
+  useEffect(() => {
+    if (imageLoading) {
+      const pulse = Animated.loop(
+        Animated.sequence([
+          Animated.timing(pulseAnim, {
+            toValue: 0.6,
+            duration: 800,
+            useNativeDriver: true,
+          }),
+          Animated.timing(pulseAnim, {
+            toValue: 1,
+            duration: 800,
+            useNativeDriver: true,
+          }),
+        ])
+      );
+      pulse.start();
+      return () => pulse.stop();
+    }
+  }, [imageLoading, pulseAnim]);
   
   const handlePress = () => {
-    // TODO: Navigate to product detail page
-    // router.push(`/product/${result.product.$id}`);
+    router.push(`/product/${result.product.$id}`);
   };
 
   const priceFormatted = `$${(result.priceJmdCents / 100).toFixed(2)}`;
   const originalUrl = result.product.primary_image_url;
   const imageUri = getTransformedImageUrl(originalUrl);
-  
-  // Debug: Log URLs to see what we're working with
-  if (__DEV__ && originalUrl) {
-    console.log("Original URL:", originalUrl);
-    console.log("Transformed URL:", imageUri);
-  }
 
   return (
     <TouchableOpacity
@@ -875,11 +866,33 @@ function ProductCard({ result }: ProductCardProps) {
       {/* Product Image - Left Side */}
       <View style={styles.productImageContainer}>
         {imageUri ? (
-          <Image
-            source={{ uri: imageUri }}
-            style={styles.productImage}
-            resizeMode="contain"
-          />
+          <>
+            {imageLoading && (
+              <Animated.View 
+                style={[
+                  styles.imagePlaceholderLoading,
+                  { opacity: pulseAnim }
+                ]}
+              >
+                <Ionicons name="image-outline" size={32} color="#9CA3AF" />
+              </Animated.View>
+            )}
+            <Image
+              source={{ uri: imageUri }}
+              style={styles.productImage}
+              contentFit="contain"
+              transition={200}
+              cachePolicy="memory-disk"
+              onLoadStart={() => setImageLoading(true)}
+              onLoad={() => setImageLoading(false)}
+              onError={(error) => {
+                setImageLoading(false);
+                if (__DEV__) {
+                  console.error("Image failed to load:", imageUri, error);
+                }
+              }}
+            />
+          </>
         ) : (
           <View style={styles.productImagePlaceholder}>
             <Ionicons name="cube-outline" size={40} color="#D1D5DB" />
