@@ -2,11 +2,12 @@ import { useState, useEffect, useCallback } from "react";
 import { Text, View, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import { useFocusEffect } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 import { useUser } from "../../contexts/UserContext";
 import { getPreferences } from "../../lib/preferences-service";
 import SearchBar from "../../components/SearchBar";
 import { useSearch } from "../../contexts/SearchContext";
+import { useCart } from "../../contexts/CartContext";
 import { getSearchSuggestions } from "../../lib/search-service";
 
 // Section Header Component
@@ -37,6 +38,8 @@ export default function HomeScreen() {
   const deliveryAddress = "6382 East Greater Parkway";
   const { userId } = useUser();
   const { performSearch, recentSearches } = useSearch();
+  const { cart } = useCart();
+  const router = useRouter();
   const [categoryPreferences, setCategoryPreferences] = useState<string[]>([]);
   const [isLoadingPreferences, setIsLoadingPreferences] = useState(true);
   const [searchSuggestions, setSearchSuggestions] = useState<any[]>([]);
@@ -107,8 +110,19 @@ export default function HomeScreen() {
             <Text style={styles.deliverToText}>Deliver To</Text>
             <Text style={styles.addressText}>{deliveryAddress}</Text>
           </View>
-          <TouchableOpacity activeOpacity={0.7}>
+          <TouchableOpacity 
+            activeOpacity={0.7} 
+            style={styles.cartButton}
+            onPress={() => router.push("/cart")}
+          >
             <Ionicons name="cart-outline" size={24} color="#111827" />
+            {cart.totalItems > 0 && (
+              <View style={styles.cartBadge}>
+                <Text style={styles.cartBadgeText}>
+                  {cart.totalItems > 99 ? "99+" : cart.totalItems}
+                </Text>
+              </View>
+            )}
           </TouchableOpacity>
         </View>
 
@@ -366,6 +380,29 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: 16,
     paddingHorizontal: 4,
+  },
+  cartButton: {
+    position: "relative",
+    padding: 4,
+  },
+  cartBadge: {
+    position: "absolute",
+    top: -2,
+    right: -2,
+    backgroundColor: "#EF4444",
+    borderRadius: 10,
+    minWidth: 20,
+    height: 20,
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 4,
+    borderWidth: 2,
+    borderColor: "#FFFFFF",
+  },
+  cartBadgeText: {
+    color: "#FFFFFF",
+    fontSize: 11,
+    fontWeight: "700",
   },
   locationContainer: {
     flexDirection: "row",
