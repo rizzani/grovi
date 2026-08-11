@@ -1,7 +1,8 @@
 import { CheckoutError } from "./errors.js";
 import { parseCart, validateRequest } from "./contract.js";
 import { documentId, orderNumber, requestFingerprint } from "./ids.js";
-import { calculateDeliveryFeeJmdCents, DELIVERY_PRICING_VERSION, MAX_DELIVERY_DISTANCE_KM, distanceKmFromMeters, validateCoordinates } from "./delivery-pricing.js";
+import { calculateDeliveryFeeJmdCents, DELIVERY_PRICING_VERSION, distanceKmFromMeters, validateCoordinates } from "./delivery-pricing.js";
+import { loadPortmoreDeliveryZone, validateDeliveryZone, validateDeliveryZoneLocation } from "./delivery-zone.js";
 import { OsrmDistanceProvider } from "./distance-provider.js";
 
 const DISCOUNT_JMD_CENTS = 0;
@@ -129,8 +130,8 @@ async function priceCart(repo, rawItems, maxQuantity) {
   return priced;
 }
 
-async function priceDelivery(repo, stores, address, distanceProvider) {
-  const pricedStores = [];
+async function resolveDeliveryRoutes(stores, address, distanceProvider) {
+  const routedStores = [];
   for (const store of stores) {
     if (!validateCoordinates(store)) {
       throw new CheckoutError("STORE_LOCATION_COORDINATES_MISSING", "Delivery is temporarily unavailable for one of the selected stores.", 500);
@@ -145,11 +146,47 @@ async function priceDelivery(repo, stores, address, distanceProvider) {
       console.error("[Checkout] Driving distance unavailable", { storeId: store.storeId, error: error?.message });
       throw new CheckoutError("DELIVERY_DISTANCE_UNAVAILABLE", "Delivery pricing is temporarily unavailable. Please retry.", 503, undefined, true);
     }
-    const distanceKm = distanceKmFromMeters(route.distanceMeters);
-    if (distanceKm > MAX_DELIVERY_DISTANCE_KM) {
-      throw new CheckoutError("DELIVERY_OUT_OF_RANGE", "This delivery address is outside Grovi's delivery area.", 422, { maxDistanceKm: MAX_DELIVERY_DISTANCE_KM });
+    if (!route || !Number.isFinite(route.distanceMeters) || route.distanceMeters < 0) {
+      throw new CheckoutError("DELIVERY_DISTANCE_UNAVAILABLE", "Delivery pricing is temporarily unavailable. Please retry.", 503, undefined, true);
     }
-    pricedStores.push({ ...store, deliveryDistanceMeters: Math.round(route.distanceMeters), deliveryDurationSeconds: Number.isFinite(route.durationSeconds) ? Math.round(route.durationSeconds) : undefined, deliveryFeeJmdCents: calculateDeliveryFeeJmdCents(distanceKm) });
+    routedStores.push({ store, route });
+  }
+  return routedStores;
+}
+
+function deliveryZoneError(reason) {
+  if (reason === "outside_service_area") return new CheckoutError("OUTSIDE_SERVICE_AREA", "This delivery address is outside Grovi's current Portmore delivery area.", 422);
+  if (reason === "delivery_out_of_range") return new CheckoutError("DELIVERY_OUT_OF_RANGE", "This delivery address is too far from the selected store for delivery.", 422);
+  if (reason === "store_inactive") return new CheckoutError("STORE_UNAVAILABLE", "A store in the cart is unavailable.", 409);
+  if (reason === "store_coordinates_invalid") return new CheckoutError("STORE_LOCATION_COORDINATES_MISSING", "Delivery is temporarily unavailable for one of the selected stores.", 500);
+  if (reason === "customer_coordinates_invalid") return new CheckoutError("INVALID_DELIVERY_LOCATION", "Choose a valid delivery location before checkout.", 422);
+  return new CheckoutError("DELIVERY_ZONE_UNAVAILABLE", "We couldn't verify delivery availability right now. Please retry.", 503, undefined, true);
+}
+
+function validateDeliveryZones(routedStores, address, zone) {
+  return routedStores.map(({ store, route }) => {
+    const result = validateDeliveryZone({ store, address, route, zone });
+    if (!result.eligible) throw deliveryZoneError(result.reason);
+    return { store, route, deliveryZoneId: result.zoneId || undefined };
+  });
+}
+
+function validateAddressZoneBeforeRouting(address, zone) {
+  const result = validateDeliveryZoneLocation({ customerLocation: address, zone });
+  if (!result.eligible) throw deliveryZoneError(result.reason);
+}
+
+function priceDelivery(routedStores) {
+  const pricedStores = [];
+  for (const { store, route, deliveryZoneId } of routedStores) {
+    const distanceKm = distanceKmFromMeters(route.distanceMeters);
+    pricedStores.push({
+      ...store,
+      deliveryZoneId,
+      deliveryDistanceMeters: Math.round(route.distanceMeters),
+      deliveryDurationSeconds: Number.isFinite(route.durationSeconds) ? Math.round(route.durationSeconds) : undefined,
+      deliveryFeeJmdCents: calculateDeliveryFeeJmdCents(distanceKm),
+    });
   }
   return pricedStores;
 }
@@ -189,7 +226,7 @@ function summarize(items, pricedStores) {
   };
 }
 
-export async function placeOrder({ userId, input, repo, now = () => new Date().toISOString(), maxQuantity = 99, distanceProvider = repo.distanceProvider || new OsrmDistanceProvider() }) {
+export async function placeOrder({ userId, input, repo, now = () => new Date().toISOString(), maxQuantity = 99, distanceProvider = repo.distanceProvider || new OsrmDistanceProvider(), deliveryZone = loadPortmoreDeliveryZone() }) {
   if (!userId) throw new CheckoutError("UNAUTHENTICATED", "Authentication is required.", 401);
   const request = validateRequest(input);
   const fingerprint = requestFingerprint(userId, request);
@@ -231,8 +268,11 @@ export async function placeOrder({ userId, input, repo, now = () => new Date().t
   const items = await priceCart(repo, rawItems, maxQuantity);
   const deliveryStores = [...new Map(items.map((item) => [item.storeId, item])).values()].map((item) => repo.getStore(item.storeId));
   const storesForDelivery = await Promise.all(deliveryStores);
-  const pricedDeliveryStores = storesForDelivery.map((store) => ({ storeId: store.$id, latitude: store.latitude, longitude: store.longitude }));
-  const totals = summarize(items, await priceDelivery(repo, pricedDeliveryStores, address, distanceProvider));
+  const pricedDeliveryStores = storesForDelivery.map((store) => ({ ...store, storeId: store.$id }));
+  validateAddressZoneBeforeRouting(address, deliveryZone);
+  const routedStores = await resolveDeliveryRoutes(pricedDeliveryStores, address, distanceProvider);
+  const zoneEligibleStores = validateDeliveryZones(routedStores, address, deliveryZone);
+  const totals = summarize(items, priceDelivery(zoneEligibleStores));
   const orderId = prior?.existing?.$id || documentId("ord", userId, request.clientRequestId);
   const timestamp = prior?.existing?.placedAt || now();
   const parentData = {
@@ -336,7 +376,7 @@ export async function placeOrder({ userId, input, repo, now = () => new Date().t
   return responseFor(parent, Boolean(prior?.existing), cartReconciliation);
 }
 
-export async function quoteOrder({ userId, addressId, cartRevision, repo, distanceProvider = repo.distanceProvider || new OsrmDistanceProvider(), maxQuantity = 99 }) {
+export async function quoteOrder({ userId, addressId, cartRevision, repo, distanceProvider = repo.distanceProvider || new OsrmDistanceProvider(), maxQuantity = 99, deliveryZone = loadPortmoreDeliveryZone() }) {
   if (!userId) throw new CheckoutError("UNAUTHENTICATED", "Authentication is required.", 401);
   const address = await repo.getAddress(addressId);
   if (!address) throw new CheckoutError("ADDRESS_NOT_FOUND", "The selected address was not found.", 404);
@@ -356,8 +396,11 @@ export async function quoteOrder({ userId, addressId, cartRevision, repo, distan
   }
   const items = await priceCart(repo, parseCart(cart), maxQuantity);
   const storesForDelivery = await Promise.all([...new Set(items.map((item) => item.storeId))].map((storeId) => repo.getStore(storeId)));
-  const pricedDeliveryStores = storesForDelivery.map((store) => ({ storeId: store.$id, latitude: store.latitude, longitude: store.longitude }));
-  const totals = summarize(items, await priceDelivery(repo, pricedDeliveryStores, address, distanceProvider));
+  const pricedDeliveryStores = storesForDelivery.map((store) => ({ ...store, storeId: store.$id }));
+  validateAddressZoneBeforeRouting(address, deliveryZone);
+  const routedStores = await resolveDeliveryRoutes(pricedDeliveryStores, address, distanceProvider);
+  const zoneEligibleStores = validateDeliveryZones(routedStores, address, deliveryZone);
+  const totals = summarize(items, priceDelivery(zoneEligibleStores));
   return {
     ok: true,
     data: {

@@ -46,6 +46,11 @@
                     "$id": "grovi-routing-api-key",
                     "key": "GROVI_ROUTING_API_KEY",
                     "value": ""
+                },
+                {
+                    "$id": "grovi-enforce-geographic-zones",
+                    "key": "GROVI_ENFORCE_GEOGRAPHIC_ZONES",
+                    "value": "true"
                 }
             ]
         },
@@ -99,7 +104,8 @@
         { "$id": "grovi-quote-database-id", "key": "GROVI_DATABASE_ID", "value": "grovi_staging" },
         { "$id": "grovi-quote-routing-provider-url", "key": "GROVI_ROUTING_PROVIDER_URL", "value": "https://router.project-osrm.org" },
         { "$id": "grovi-quote-routing-timeout-ms", "key": "GROVI_ROUTING_TIMEOUT_MS", "value": "5000" },
-        { "$id": "grovi-quote-routing-api-key", "key": "GROVI_ROUTING_API_KEY", "value": "" }
+        { "$id": "grovi-quote-routing-api-key", "key": "GROVI_ROUTING_API_KEY", "value": "" },
+        { "$id": "grovi-quote-enforce-geographic-zones", "key": "GROVI_ENFORCE_GEOGRAPHIC_ZONES", "value": "true" }
       ]
     }
     ]

@@ -202,7 +202,13 @@ export default function CheckoutReviewScreen() {
           setSubmissionError("Choose a valid delivery location before placing the order.");
           break;
         case "DELIVERY_OUT_OF_RANGE":
-          setSubmissionError("That address is outside Grovi's delivery area. Choose another address.");
+          setSubmissionError("That address is too far from the selected store for delivery. Choose another address.");
+          break;
+        case "OUTSIDE_SERVICE_AREA":
+          setSubmissionError("That address is outside Grovi's current Portmore delivery area. Choose another address.");
+          break;
+        case "DELIVERY_ZONE_UNAVAILABLE":
+          setSubmissionError("We couldn't verify delivery availability right now. Tap Retry to try again.");
           break;
         case "DELIVERY_DISTANCE_UNAVAILABLE":
           setSubmissionError("We couldn't calculate delivery pricing right now. Tap Retry to try again.");
@@ -345,8 +351,8 @@ export default function CheckoutReviewScreen() {
           {deliveryQuote.status === "success" && <Text style={styles.distanceText}>{(deliveryQuote.data.deliveryDistanceMeters / 1000).toFixed(2)} km delivery</Text>}
           {deliveryQuote.status === "error" && (
             <View style={styles.quoteErrorRow}>
-              <Text style={styles.errorText}>{deliveryQuote.error.code === "DELIVERY_OUT_OF_RANGE" ? "This address is outside our current delivery area." : deliveryQuote.error.code === "INVALID_DELIVERY_LOCATION" ? "Choose a valid map location before checkout." : "We couldn't calculate delivery right now."}</Text>
-              {deliveryQuote.error.code !== "DELIVERY_OUT_OF_RANGE" && <TouchableOpacity onPress={() => setQuoteRetryNonce((value) => value + 1)}><Text style={styles.actionText}>Retry</Text></TouchableOpacity>}
+              <Text style={styles.errorText}>{deliveryQuote.error.code === "OUTSIDE_SERVICE_AREA" ? "This address is outside Grovi's current Portmore delivery area." : deliveryQuote.error.code === "DELIVERY_OUT_OF_RANGE" ? "This address is too far from the selected store for delivery." : deliveryQuote.error.code === "INVALID_DELIVERY_LOCATION" ? "Choose a valid map location before checkout." : "We couldn't verify delivery availability right now."}</Text>
+              {!(["OUTSIDE_SERVICE_AREA", "DELIVERY_OUT_OF_RANGE", "INVALID_DELIVERY_LOCATION"].includes(deliveryQuote.error.code)) && <TouchableOpacity onPress={() => setQuoteRetryNonce((value) => value + 1)}><Text style={styles.actionText}>Retry</Text></TouchableOpacity>}
             </View>
           )}
           <Text style={styles.policyText}>Delivery is priced from the driving route between the selected store and address.</Text>
